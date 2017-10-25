@@ -2797,6 +2797,7 @@ TEST_F(DBIterWithMergeIterTest, InnerMergeIteratorDataRace8) {
   rocksdb::SyncPoint::GetInstance()->DisableProcessing();
 }
 
+
 TEST_F(DBIteratorTest, SeekPrefixTombstones) {
   ReadOptions ro;
   Options options;
@@ -2814,7 +2815,6 @@ TEST_F(DBIteratorTest, SeekPrefixTombstones) {
   std::unique_ptr<Iterator> db_iter(NewDBIterator(
       env_, ro, ImmutableCFOptions(options), BytewiseComparator(),
       internal_iter, 10, options.max_sequential_skip_in_iterations, 0));
-
   int skipped_keys = 0;
 
   get_perf_context()->Reset();

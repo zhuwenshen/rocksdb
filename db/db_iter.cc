@@ -705,11 +705,6 @@ void DBIter::PrevInternal() {
       if (user_comparator_->Equal(ikey.user_key, saved_key_.GetUserKey())) {
         FindPrevUserKey();
       }
-      if (valid_ && prefix_extractor_ && prefix_same_as_start_ &&
-          prefix_extractor_->Transform(saved_key_.GetUserKey())
-                  .compare(prefix_start_key_) != 0) {
-        valid_ = false;
-      }
       return;
     }
 
