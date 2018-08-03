@@ -2928,6 +2928,8 @@ Status DBImpl::IngestExternalFile(
   }
   dummy_sv_ctx.Clean();
   if (!status.ok()) {
+    InstrumentedMutexLock l(&mutex_);
+    ReleaseFileNumberFromPendingOutputs(pending_output_elem);
     return status;
   }
 
