@@ -45,8 +45,8 @@ TEST_F(BlobGCPickerTest, Basic) {
   UpdateBlobStorage();
   auto blob_gc = basic_blob_gc_picker_->PickBlobGC(blob_storage_.get());
   ASSERT_TRUE(blob_gc != nullptr);
-  ASSERT_EQ(blob_gc->candidate_files().size(), 1);
-  ASSERT_EQ(blob_gc->candidate_files()[0]->file_number, 1U);
+  ASSERT_EQ(blob_gc->inputs().size(), 1);
+  ASSERT_EQ(blob_gc->inputs()[0]->file_number, 1U);
 }
 
 TEST_F(BlobGCPickerTest, BeingGC) {
@@ -63,8 +63,8 @@ TEST_F(BlobGCPickerTest, BeingGC) {
   AddBlobFile(2U, 1U, 0U);
   UpdateBlobStorage();
   blob_gc = basic_blob_gc_picker_->PickBlobGC(blob_storage_.get());
-  ASSERT_EQ(blob_gc->candidate_files().size(), 1);
-  ASSERT_EQ(blob_gc->candidate_files()[0]->file_number, 2U);
+  ASSERT_EQ(blob_gc->inputs().size(), 1);
+  ASSERT_EQ(blob_gc->inputs()[0]->file_number, 2U);
 }
 
 }  // namespace titandb

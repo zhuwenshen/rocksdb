@@ -1,4 +1,5 @@
 #include "utilities/titandb/blob_file_size_collector.h"
+#include "base_db_event_listener.h"
 
 namespace rocksdb {
 namespace titandb {
@@ -66,81 +67,17 @@ Status BlobFileSizeCollector::AddUserKey(const Slice& /* key */,
 }
 
 Status BlobFileSizeCollector::Finish(UserCollectedProperties* properties) {
-  std::string res;
-  Encode(blob_files_size_, &res);
-  *properties = UserCollectedProperties{{kPropertiesName, res}};
-  return Status::OK();
-}
-
-BlobDiscardableSizeListener::BlobDiscardableSizeListener(TitanDBImpl* db,
-                                                         port::Mutex* db_mutex,
-                                                         VersionSet* versions)
-    : db_(db), db_mutex_(db_mutex), versions_(versions) {}
-
-BlobDiscardableSizeListener::~BlobDiscardableSizeListener() {}
-
-void BlobDiscardableSizeListener::OnCompactionCompleted(
-    rocksdb::DB* /* db */, const CompactionJobInfo& ci) {
-  std::map<uint64_t, int64_t> blob_files_size;
-  auto calc_bfs = [&ci, &blob_files_size](const std::vector<std::string>& files,
-                                          int coefficient) {
-    for (const auto& file : files) {
-      auto tp_iter = ci.table_properties.find(file);
-      if (tp_iter == ci.table_properties.end()) {
-        continue;
-      }
-      auto ucp_iter = tp_iter->second->user_collected_properties.find(
-          BlobFileSizeCollector::kPropertiesName);
-      if (ucp_iter == tp_iter->second->user_collected_properties.end()) {
-        continue;
-      }
-      std::map<uint64_t, uint64_t> input_blob_files_size;
-      std::string s = ucp_iter->second;
-      Slice slice{s};
-      BlobFileSizeCollector::Decode(&slice, &input_blob_files_size);
-      for (const auto& input_bfs : input_blob_files_size) {
-        auto bfs_iter = blob_files_size.find(input_bfs.first);
-        if (bfs_iter == blob_files_size.end()) {
-          blob_files_size[input_bfs.first] = coefficient * input_bfs.second;
-        } else {
-          bfs_iter->second += coefficient * input_bfs.second;
-        }
-      }
-    }
-  };
-
-  calc_bfs(ci.input_files, -1);
-  calc_bfs(ci.output_files, 1);
-
-  {
-    MutexLock l(db_mutex_);
-    Version* current = versions_->current();
-    current->Ref();
-    auto bs = current->GetBlobStorage(ci.cf_id).lock();
-    if (!bs) {
-      current->Unref();
-      return;
-    }
-
-    for (const auto& bfs : blob_files_size) {
-      // blob file size < 0 means discardable size > 0
-      if (bfs.second > 0) {
-        continue;
-      }
-      auto file = bs->FindFile(bfs.first).lock();
-      if (!file) {
-        // file has been gc out
-        continue;
-      }
-      file->discardable_size += static_cast<uint64_t>(-bfs.second);
-    }
-    bs->ComputeGCScore();
-    current->Unref();
-    if (db_ != nullptr) {
-      db_->AddToGCQueue(ci.cf_id);
-      db_->MaybeScheduleGC();
-    }
+  if (blob_files_size_.empty()) {
+    return Status::OK();
   }
+
+  std::string res;
+  if (!Encode(blob_files_size_, &res) || res.empty()) {
+    fprintf(stderr, "blob file size collector encode failed\n");
+    abort();
+  }
+  properties->emplace(std::make_pair(kPropertiesName, res));
+  return Status::OK();
 }
 
 }  // namespace titandb

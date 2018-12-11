@@ -40,19 +40,5 @@ class BlobFileSizeCollector final : public TablePropertiesCollector {
   std::map<uint64_t, uint64_t> blob_files_size_;
 };
 
-class BlobDiscardableSizeListener final : public EventListener {
- public:
-  BlobDiscardableSizeListener(TitanDBImpl* db, port::Mutex* db_mutex,
-                              VersionSet* versions);
-  ~BlobDiscardableSizeListener();
-
-  void OnCompactionCompleted(DB* db, const CompactionJobInfo& ci) override;
-
- private:
-  TitanDBImpl* db_;
-  port::Mutex* db_mutex_;
-  VersionSet* versions_;
-};
-
 }  // namespace titandb
 }  // namespace rocksdb

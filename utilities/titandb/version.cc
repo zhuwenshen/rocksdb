@@ -46,7 +46,8 @@ void BlobStorage::ComputeGCScore() {
                titan_cf_options_.merge_small_file_threshold) {
       gcs.score = 1;
     } else {
-      gcs.score = file.second->discardable_size / file.second->file_size;
+      gcs.score = (double)file.second->discardable_size /
+                  (double)file.second->file_size;
     }
   }
 
@@ -71,6 +72,11 @@ Version::~Version() {
     if (b.second.use_count() > 1) continue;
     for (auto& f : b.second->files_) {
       if (f.second.use_count() > 1) continue;
+      // TODO(@DorianZheng) We need to judge file state, In case encoutering
+      // some unexpected behaviour
+      assert(!f.second->being_gc);
+      assert(!f.second->pending);
+      assert(!f.second->pending_gc);
       obsolete_blob_files.emplace_back(f.second->file_number);
     }
   }

@@ -173,7 +173,7 @@ class VersionBuilder::Rep {
                       external_file_seqno);
               abort();
             }
-          } else if (f1->smallest_seqno <= f2->smallest_seqno) {
+          } else if (f1->largest_seqno < f2->largest_seqno) {
             fprintf(stderr, "L0 files seqno %" PRIu64 " %" PRIu64
                             " vs. %" PRIu64 " %" PRIu64 "\n",
                     f1->smallest_seqno, f1->largest_seqno, f2->smallest_seqno,

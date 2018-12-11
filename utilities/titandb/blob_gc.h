@@ -2,37 +2,56 @@
 
 #include <memory>
 
+#include "db/column_family.h"
 #include "utilities/titandb/blob_format.h"
 #include "utilities/titandb/options.h"
 
 namespace rocksdb {
 namespace titandb {
 
+class Version;
+
 // A BlobGC encapsulates information about a blob gc.
 class BlobGC {
  public:
   BlobGC(std::vector<BlobFileMeta*>&& blob_files,
          TitanCFOptions&& _titan_cf_options);
+
+  // No copying allowed
+  BlobGC(const BlobGC&) = delete;
+  void operator=(const BlobGC&) = delete;
+
   ~BlobGC();
 
-  const std::vector<BlobFileMeta*>& candidate_files() {
-    return candidate_files_;
+  const std::vector<BlobFileMeta*>& inputs() { return inputs_; }
+
+  void set_sampled_inputs(std::vector<BlobFileMeta*>&& files) {
+    sampled_inputs_ = std::move(files);
   }
 
-  void set_selected_files(std::vector<BlobFileMeta*>&& files) {
-    selected_files_ = std::move(files);
-  }
-
-  const std::vector<BlobFileMeta*>& selected_files() { return selected_files_; }
-
-  void ClearSelectedFiles() { selected_files_.clear(); }
+  const std::vector<BlobFileMeta*>& sampled_inputs() { return sampled_inputs_; }
 
   const TitanCFOptions& titan_cf_options() { return titan_cf_options_; }
 
+  void SetInputVersion(ColumnFamilyHandle* cfh, Version* version);
+
+  ColumnFamilyHandle* column_family_handle() { return cfh_; }
+
+  ColumnFamilyData* GetColumnFamilyData();
+
+  void MarkFilesBeingGC(bool flag);
+
+  void AddOutputFile(BlobFileMeta*);
+
+  void ReleaseGcFiles();
+
  private:
-  std::vector<BlobFileMeta*> candidate_files_;
-  std::vector<BlobFileMeta*> selected_files_;
+  std::vector<BlobFileMeta*> inputs_;
+  std::vector<BlobFileMeta*> sampled_inputs_;
+  std::vector<BlobFileMeta*> outputs_;
   TitanCFOptions titan_cf_options_;
+  ColumnFamilyHandle* cfh_{nullptr};
+  Version* current_{nullptr};
 };
 
 struct GCScore {

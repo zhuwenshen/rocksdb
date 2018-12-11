@@ -12,7 +12,7 @@ void TitanTableBuilder::Add(const Slice& key, const Slice& value) {
     return;
   }
 
-  if (ikey.type != kTypeValue || value.size() < options_.min_blob_size) {
+  if (ikey.type != kTypeValue || value.size() < cf_options_.min_blob_size) {
     base_builder_->Add(key, value);
     return;
   }
@@ -34,7 +34,8 @@ void TitanTableBuilder::AddBlob(const Slice& key, const Slice& value,
   if (!blob_builder_) {
     status_ = blob_manager_->NewFile(&blob_handle_);
     if (!ok()) return;
-    blob_builder_.reset(new BlobFileBuilder(options_, blob_handle_->GetFile()));
+    blob_builder_.reset(
+        new BlobFileBuilder(cf_options_, blob_handle_->GetFile()));
   }
 
   BlobIndex index;
@@ -69,6 +70,8 @@ Status TitanTableBuilder::Finish() {
       file->file_size = blob_handle_->GetFile()->GetFileSize();
       status_ =
           blob_manager_->FinishFile(cf_id_, file, std::move(blob_handle_));
+      ROCKS_LOG_INFO(db_options_.info_log, "[%u] AddFile %lu", cf_id_,
+                     file->file_number);
     } else {
       status_ = blob_manager_->DeleteFile(std::move(blob_handle_));
     }

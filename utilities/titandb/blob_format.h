@@ -101,14 +101,8 @@ struct BlobIndex {
 // file_size        : varint64
 struct BlobFileMeta {
   BlobFileMeta(){};
-  BlobFileMeta(uint64_t _file_number, uint64_t _file_size,
-               uint64_t _discardable_size = 0, bool _being_gc = false,
-               bool _marked_for_sample = true)
-      : file_number(_file_number),
-        file_size(_file_size),
-        discardable_size(_discardable_size),
-        marked_for_sample(_marked_for_sample),
-        being_gc(_being_gc) {}
+  BlobFileMeta(uint64_t _file_number, uint64_t _file_size)
+      : file_number(_file_number), file_size(_file_size) {}
 
   // Persistent field, we should never modify it.
   uint64_t file_number{0};
@@ -117,11 +111,15 @@ struct BlobFileMeta {
   // Not persistent field
   // These fields maybe are mutate, need to be protected by db.mutex_
   uint64_t discardable_size{0};
-  bool marked_for_gc = false;
-  bool marked_for_sample = true;
+  bool marked_for_gc{false};
+  bool marked_for_sample{true};
 
   // This field can be modified concurrently
-  std::atomic_bool being_gc{false};
+  bool being_gc{false};
+
+  bool pending{true};
+
+  bool pending_gc{false};
 
   void EncodeTo(std::string* dst) const;
   Status DecodeFrom(Slice* src);

@@ -27,6 +27,15 @@ class TitanDBImpl : public TitanDB {
   Status DropColumnFamilies(
       const std::vector<ColumnFamilyHandle*>& handles) override;
 
+  using TitanDB::CompactFiles;
+  Status CompactFiles(
+      const CompactionOptions& compact_options,
+      ColumnFamilyHandle* column_family,
+      const std::vector<std::string>& input_file_names, const int output_level,
+      const int output_path_id = -1,
+      std::vector<std::string>* const output_file_names = nullptr,
+      CompactionJobInfo* compaction_job_info = nullptr) override;
+
   Status CloseImpl();
 
   using TitanDB::Get;
@@ -55,7 +64,7 @@ class TitanDBImpl : public TitanDB {
   class FileManager;
   friend class FileManager;
   friend class BlobGCJobTest;
-  friend class BlobDiscardableSizeListener;
+  friend class BlobFileChangeListener;
 
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* handle,
                  const Slice& key, PinnableSlice* value);
@@ -71,20 +80,15 @@ class TitanDBImpl : public TitanDB {
 
   // REQUIRE: mutex_ held
   void AddToGCQueue(uint32_t column_family_id) {
-    if (pending_gc_.find(column_family_id) != pending_gc_.end()) return;
     gc_queue_.push_back(column_family_id);
-    pending_gc_.insert(column_family_id);
   }
 
   // REQUIRE: gc_queue_ not empty
   // REQUIRE: mutex_ held
   uint32_t PopFirstFromGCQueue() {
     assert(!gc_queue_.empty());
-    assert(!pending_gc_.empty());
     auto column_family_id = *gc_queue_.begin();
     gc_queue_.pop_front();
-    assert(pending_gc_.count(column_family_id) != 0);
-    pending_gc_.erase(column_family_id);
     return column_family_id;
   }
 
@@ -93,12 +97,16 @@ class TitanDBImpl : public TitanDB {
 
   static void BGWorkGC(void* db);
   void BackgroundCallGC();
-  Status BackgroundGC();
+  Status BackgroundGC(LogBuffer* log_buffer);
 
   // REQUIRES: mutex_ held;
   void PurgeObsoleteFiles();
 
   FileLock* lock_{nullptr};
+  // The lock sequence must be Titan.mutex_.Lock() -> Base DB mutex_.Lock()
+  // while the unlock sequence must be Base DB mutex.Unlock() ->
+  // Titan.mutex_.Unlock() Only if we all obey these sequence, we can prevent
+  // potential dead lock.
   port::Mutex mutex_;
   // This condition variable is signaled on these conditions:
   // * whenever bg_gc_scheduled_ goes down to 0
@@ -118,9 +126,12 @@ class TitanDBImpl : public TitanDB {
   // gc_queue_ hold column families that we need to gc.
   // pending_gc_ hold column families that already on gc_queue_.
   std::deque<uint32_t> gc_queue_;
-  std::set<uint32_t> pending_gc_;
 
   std::atomic_int bg_gc_scheduled_{0};
+
+  std::atomic_bool shuting_down_{false};
+
+  std::unordered_set<ColumnFamilyData*> cfds_;
 };
 
 }  // namespace titandb

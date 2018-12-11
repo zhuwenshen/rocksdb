@@ -94,7 +94,7 @@ struct TitanOptions : public TitanDBOptions, public TitanCFOptions {
   TitanOptions() = default;
   explicit TitanOptions(const Options& options)
       : TitanDBOptions(options), TitanCFOptions(options) {}
-      
+
   TitanOptions& operator=(const Options& options) {
     *dynamic_cast<TitanDBOptions*>(this) = options;
     *dynamic_cast<TitanCFOptions*>(this) = options;

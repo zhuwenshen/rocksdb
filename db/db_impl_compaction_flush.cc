@@ -221,6 +221,7 @@ void DBImpl::NotifyOnFlushBegin(ColumnFamilyData* cfd, FileMetaData* file_meta,
   mutex_.Unlock();
   {
     FlushJobInfo info;
+    info.cf_id = cfd->GetID();
     info.cf_name = cfd->GetName();
     // TODO(yhchiang): make db_paths dynamic in case flush does not
     //                 go to L0 in the future.
@@ -272,6 +273,7 @@ void DBImpl::NotifyOnFlushCompleted(ColumnFamilyData* cfd,
   mutex_.Unlock();
   {
     FlushJobInfo info;
+    info.cf_id = cfd->GetID();
     info.cf_name = cfd->GetName();
     // TODO(yhchiang): make db_paths dynamic in case flush does not
     //                 go to L0 in the future.
@@ -436,7 +438,8 @@ Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
                             ColumnFamilyHandle* column_family,
                             const std::vector<std::string>& input_file_names,
                             const int output_level, const int output_path_id,
-                            std::vector<std::string>* const output_file_names) {
+                            std::vector<std::string>* const output_file_names,
+                            CompactionJobInfo* compaction_job_info) {
 #ifdef ROCKSDB_LITE
   (void)compact_options;
   (void)column_family;
@@ -444,8 +447,9 @@ Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
   (void)output_level;
   (void)output_path_id;
   (void)output_file_names;
-  // not supported in lite version
-  return Status::NotSupported("Not supported in ROCKSDB LITE");
+  (void)compaction_job_info
+      // not supported in lite version
+      return Status::NotSupported("Not supported in ROCKSDB LITE");
 #else
   if (column_family == nullptr) {
     return Status::InvalidArgument("ColumnFamilyHandle must be non-null.");
@@ -455,7 +459,8 @@ Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
   assert(cfd);
 
   Status s;
-  JobContext job_context(0, true);
+  JobContext job_context(next_job_id_.fetch_add(1, std::memory_order_relaxed),
+                         true);
   LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL,
                        immutable_db_options_.info_log.get());
 
@@ -475,7 +480,7 @@ Status DBImpl::CompactFiles(const CompactionOptions& compact_options,
 
     s = CompactFilesImpl(compact_options, cfd, current, input_file_names,
                          output_file_names, output_level, output_path_id,
-                         &job_context, &log_buffer);
+                         &job_context, &log_buffer, compaction_job_info);
 
     current->Unref();
   }
@@ -515,7 +520,8 @@ Status DBImpl::CompactFilesImpl(
     const CompactionOptions& compact_options, ColumnFamilyData* cfd,
     Version* version, const std::vector<std::string>& input_file_names,
     std::vector<std::string>* const output_file_names, const int output_level,
-    int output_path_id, JobContext* job_context, LogBuffer* log_buffer) {
+    int output_path_id, JobContext* job_context, LogBuffer* log_buffer,
+    CompactionJobInfo* compaction_job_info) {
   mutex_.AssertHeld();
 
   if (shutting_down_.load(std::memory_order_acquire)) {
@@ -610,19 +616,24 @@ Status DBImpl::CompactFilesImpl(
       snapshot_checker, table_cache_, &event_logger_,
       c->mutable_cf_options()->paranoid_file_checks,
       c->mutable_cf_options()->report_bg_io_stats, dbname_,
-      nullptr);  // Here we pass a nullptr for CompactionJobStats because
-                 // CompactFiles does not trigger OnCompactionCompleted(),
-                 // which is the only place where CompactionJobStats is
-                 // returned.  The idea of not triggering OnCompationCompleted()
-                 // is that CompactFiles runs in the caller thread, so the user
-                 // should always know when it completes.  As a result, it makes
-                 // less sense to notify the users something they should already
-                 // know.
-                 //
-                 // In the future, if we would like to add CompactionJobStats
-                 // support for CompactFiles, we should have CompactFiles API
-                 // pass a pointer of CompactionJobStats as the out-value
-                 // instead of using EventListener.
+      compaction_job_info == nullptr
+          ? nullptr
+          : &compaction_job_info
+                 ->stats);  // Here we pass a nullptr for CompactionJobStats
+                            // because CompactFiles does not trigger
+                            // OnCompactionCompleted(), which is the only place
+                            // where CompactionJobStats is returned.  The idea
+                            // of not triggering OnCompationCompleted() is that
+                            // CompactFiles runs in the caller thread, so the
+                            // user should always know when it completes.  As a
+                            // result, it makes less sense to notify the users
+                            // something they should already know.
+                            //
+                            // In the future, if we would like to add
+                            // CompactionJobStats support for CompactFiles, we
+                            // should have CompactFiles API pass a pointer of
+                            // CompactionJobStats as the out-value instead of
+                            // using EventListener.
 
   // Creating a compaction influences the compaction score because the score
   // takes running compactions into account (by skipping files that are already
@@ -661,6 +672,40 @@ Status DBImpl::CompactFilesImpl(
 
   if (status.ok()) {
     // Done
+    mutex_.Unlock();
+    TEST_SYNC_POINT("DBImpl::NotifyOnCompactionCompleted::UnlockMutex");
+    if (compaction_job_info != nullptr) {
+      CompactionJobInfo& info = *compaction_job_info;
+      info.cf_id = cfd->GetID();
+      info.cf_name = cfd->GetName();
+      info.thread_id = env_->GetThreadID();
+      info.job_id = job_context->job_id;
+      info.base_input_level = c->start_level();
+      info.output_level = c->output_level();
+      info.table_properties = c->GetOutputTableProperties();
+      info.compaction_reason = c->compaction_reason();
+      info.compression = c->output_compression();
+      for (size_t i = 0; i < c->num_input_levels(); ++i) {
+        for (const auto fmd : *c->inputs(i)) {
+          auto fn = TableFileName(c->immutable_cf_options()->cf_paths,
+                                  fmd->fd.GetNumber(), fmd->fd.GetPathId());
+          info.input_files.push_back(fn);
+          if (info.table_properties.count(fn) == 0) {
+            std::shared_ptr<const TableProperties> tp;
+            auto ts = version->GetTableProperties(&tp, fmd, &fn);
+            if (ts.ok()) {
+              info.table_properties[fn] = tp;
+            }
+          }
+        }
+      }
+      for (const auto newf : c->edit()->GetNewFiles()) {
+        info.output_files.push_back(TableFileName(
+            c->immutable_cf_options()->cf_paths, newf.second.fd.GetNumber(),
+            newf.second.fd.GetPathId()));
+      }
+    }
+    mutex_.Lock();
   } else if (status.IsShutdownInProgress()) {
     // Ignore compaction errors found during shutting down
   } else {

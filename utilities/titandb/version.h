@@ -39,8 +39,13 @@ class BlobStorage {
   // corruption if the file doesn't exist in the specific version.
   std::weak_ptr<BlobFileMeta> FindFile(uint64_t file_number);
 
+  std::size_t NumBlobFiles() { return files_.size(); }
+
   void MarkAllFilesForGC() {
-    for (auto& file : files_) file.second->marked_for_gc = true;
+    for (auto& file : files_) {
+      file.second->pending = false;
+      file.second->marked_for_gc = true;
+    }
   }
 
   const std::vector<GCScore> gc_score() { return gc_score_; }
@@ -84,7 +89,9 @@ class Version {
   std::weak_ptr<BlobStorage> GetBlobStorage(uint32_t cf_id);
 
   void MarkAllFilesForGC() {
-    for (auto& cf : column_families_) cf.second->MarkAllFilesForGC();
+    for (auto& cf : column_families_) {
+      cf.second->MarkAllFilesForGC();
+    }
   }
 
  private:

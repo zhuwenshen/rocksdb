@@ -14,10 +14,16 @@ namespace titandb {
 
 class BlobGCJob {
  public:
-  BlobGCJob(BlobGC* blob_gc, DB* db, ColumnFamilyHandle* cfh,
-            port::Mutex* mutex, const TitanDBOptions& titan_db_options,
-            Env* env, const EnvOptions& env_options,
-            BlobFileManager* blob_file_manager, VersionSet* version_set);
+  BlobGCJob(BlobGC* blob_gc, DB* db, port::Mutex* mutex,
+            const TitanDBOptions& titan_db_options, Env* env,
+            const EnvOptions& env_options, BlobFileManager* blob_file_manager,
+            VersionSet* version_set, LogBuffer* log_buffer,
+            std::atomic_bool* shuting_down);
+
+  // No copying allowed
+  BlobGCJob(const BlobGCJob&) = delete;
+  void operator=(const BlobGCJob&) = delete;
+
   ~BlobGCJob();
 
   // REQUIRE: mutex held
@@ -34,13 +40,13 @@ class BlobGCJob {
   BlobGC* blob_gc_;
   DB* base_db_;
   DBImpl* base_db_impl_;
-  ColumnFamilyHandle* cfh_;
-  port::Mutex* tdb_mutex_;
-  TitanDBOptions titan_db_options_;
+  port::Mutex* mutex_;
+  TitanDBOptions db_options_;
   Env* env_;
   EnvOptions env_options_;
   BlobFileManager* blob_file_manager_;
   titandb::VersionSet* version_set_;
+  LogBuffer* log_buffer_{nullptr};
 
   std::vector<std::pair<std::unique_ptr<BlobFileHandle>,
                         std::unique_ptr<BlobFileBuilder>>>
@@ -48,6 +54,8 @@ class BlobGCJob {
   std::vector<std::pair<WriteBatch, GarbageCollectionWriteCallback>>
       rewrite_batches_;
   InternalKeyComparator* cmp_{nullptr};
+
+  std::atomic_bool* shuting_down_{nullptr};
 
   Status SampleCandidateFiles();
   bool DoSample(const BlobFileMeta* file);
@@ -57,6 +65,8 @@ class BlobGCJob {
   Status InstallOutputBlobFiles();
   Status RewriteValidKeyToLSM();
   Status DeleteInputBlobFiles() const;
+
+  bool IsShutingDown();
 };
 
 }  // namespace titandb

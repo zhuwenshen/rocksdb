@@ -426,6 +426,13 @@ DEFINE_uint64(snapshot_hold_ops, 0,
 
 DEFINE_bool(use_titandb, true, "Use TitanDB");
 
+DEFINE_bool(disable_background_gc, false, "Disable background gc");
+
+DEFINE_int32(max_background_gc,
+             rocksdb::titandb::TitanOptions().max_background_gc,
+             "The maximum number of concurrent background gc "
+             "that can occur in parallel.");
+
 static bool ValidateInt32Percent(const char* flagname, int32_t value) {
   if (value < 0 || value>100) {
     fprintf(stderr, "Invalid value for --%s: %d, 0<= pct <=100 \n",
@@ -2333,10 +2340,16 @@ class StressTest {
           new DbStressListener(FLAGS_db, options_.db_paths, cf_descriptors));
       options_.create_missing_column_families = true;
       if (FLAGS_use_titandb) {
-        options_.disable_background_gc = false;
+        if (cache_) {
+          options_.blob_cache = cache_;
+        }
+        options_.blob_file_compression = kLZ4Compression;
+        options_.blob_file_target_size = 128 << 20;
+        options_.disable_background_gc = FLAGS_disable_background_gc;
         options_.min_blob_size = 0;
         options_.min_gc_batch_size = 0;
         options_.blob_file_discardable_ratio = 0.01;
+        options_.max_background_gc = FLAGS_max_background_gc;
         titandb::TitanDBOptions titan_db_options(options_);
         std::vector<titandb::TitanCFDescriptor> titan_cf_descriptors;
         for (const auto& cfd : cf_descriptors) {
@@ -2887,7 +2900,7 @@ class NonBatchedOpsStressTest : public StressTest {
       values.push_back(value_base);
       shared->Put(column_family, key, value_base, true /* pending */);
 
-      char value[100];
+      char value[kValueMaxLen];
       size_t value_len = GenerateValue(value_base, value, sizeof(value));
       auto key_str = Key(key);
       s = sst_file_writer.Put(Slice(key_str), Slice(value, value_len));

@@ -109,7 +109,7 @@ class DBImpl : public DB {
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* column_family,
                  const Slice& key, PinnableSlice* value,
                  bool* value_found = nullptr, ReadCallback* callback = nullptr,
-                 bool* is_blob_index = nullptr);
+                 bool* is_blob_index = nullptr, SuperVersion* sv = nullptr);
 
   using DB::MultiGet;
   virtual std::vector<Status> MultiGet(
@@ -154,7 +154,8 @@ class DBImpl : public DB {
                                       SequenceNumber snapshot,
                                       ReadCallback* read_callback,
                                       bool allow_blob = false,
-                                      bool allow_refresh = true);
+                                      bool allow_refresh = true,
+                                      SuperVersion* sv = nullptr);
 
   virtual const Snapshot* GetSnapshot() override;
   virtual void ReleaseSnapshot(const Snapshot* snapshot) override;
@@ -187,13 +188,13 @@ class DBImpl : public DB {
                               const Slice* begin, const Slice* end) override;
 
   using DB::CompactFiles;
-  virtual Status CompactFiles(const CompactionOptions& compact_options,
-                              ColumnFamilyHandle* column_family,
-                              const std::vector<std::string>& input_file_names,
-                              const int output_level,
-                              const int output_path_id = -1,
-                              std::vector<std::string>* const output_file_names
-                              = nullptr) override;
+  virtual Status CompactFiles(
+      const CompactionOptions& compact_options,
+      ColumnFamilyHandle* column_family,
+      const std::vector<std::string>& input_file_names, const int output_level,
+      const int output_path_id = -1,
+      std::vector<std::string>* const output_file_names = nullptr,
+      CompactionJobInfo* compaction_job_info = nullptr) override;
 
   virtual Status PauseBackgroundWork() override;
   virtual Status ContinueBackgroundWork() override;
@@ -513,6 +514,8 @@ class DBImpl : public DB {
   // REQUIRED: this function should only be called on the write thread or if the
   // mutex is held.
   SuperVersion* GetAndRefSuperVersion(uint32_t column_family_id);
+
+  SuperVersion* GetReferencedSuperVersion(ColumnFamilyData* cfd);
 
   // Un-reference the super version and clean it up if it is the last reference.
   void CleanupSuperVersion(SuperVersion* sv);
@@ -954,7 +957,8 @@ class DBImpl : public DB {
                           const std::vector<std::string>& input_file_names,
                           std::vector<std::string>* const output_file_names,
                           const int output_level, int output_path_id,
-                          JobContext* job_context, LogBuffer* log_buffer);
+                          JobContext* job_context, LogBuffer* log_buffer,
+                          CompactionJobInfo* compaction_job_info = nullptr);
 
   // Wait for current IngestExternalFile() calls to finish.
   // REQUIRES: mutex_ held

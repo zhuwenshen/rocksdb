@@ -19,7 +19,7 @@ void TitanDBImpl::PurgeObsoleteFiles() {
       candidate_files.emplace_back(std::move(manifest));
     }
 
-    // dedup state.candidate_files so we don't try to delete the same
+    // dedup state.inputs so we don't try to delete the same
     // file twice
     std::sort(candidate_files.begin(), candidate_files.end());
     candidate_files.erase(
@@ -27,8 +27,14 @@ void TitanDBImpl::PurgeObsoleteFiles() {
         candidate_files.end());
 
     for (const auto& candidate_file : candidate_files) {
+      ROCKS_LOG_WARN(db_options_.info_log, "Titan deleting obsolete file [%s]",
+                     candidate_file.c_str());
       s = env_->DeleteFile(candidate_file);
-      assert(s.ok());
+      if (!s.ok()) {
+        fprintf(stderr, "Titan deleting file [%s] failed, status:%s",
+                candidate_file.c_str(), s.ToString().c_str());
+        abort();
+      }
     }
     mutex_.Lock();
   }

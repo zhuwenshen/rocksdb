@@ -37,8 +37,11 @@ class BlobGCJob::GarbageCollectionWriteCallback : public WriteCallback {
     if (s.ok()) {
       BlobIndex other_blob_index;
       s = other_blob_index.DecodeFrom(&index_entry);
-      assert(s.ok());
-      if (!s.ok()) return s;
+      if (!s.ok()) {
+        fprintf(stderr, "Decode blob index [%s] failed, err:%s\n",
+                index_entry.ToString(true).c_str(), s.ToString().c_str());
+        abort();
+      }
 
       if (!(blob_index_ == other_blob_index)) {
         s = Status::Busy("key overwritten with other blob");
@@ -59,21 +62,23 @@ class BlobGCJob::GarbageCollectionWriteCallback : public WriteCallback {
   BlobIndex blob_index_;
 };
 
-BlobGCJob::BlobGCJob(BlobGC* blob_gc, DB* db, ColumnFamilyHandle* cfh,
-                     port::Mutex* mutex, const TitanDBOptions& titan_db_options,
-                     Env* env, const EnvOptions& env_options,
+BlobGCJob::BlobGCJob(BlobGC* blob_gc, DB* db, port::Mutex* mutex,
+                     const TitanDBOptions& titan_db_options, Env* env,
+                     const EnvOptions& env_options,
                      BlobFileManager* blob_file_manager,
-                     VersionSet* version_set)
+                     VersionSet* version_set, LogBuffer* log_buffer,
+                     std::atomic_bool* shuting_down)
     : blob_gc_(blob_gc),
       base_db_(db),
       base_db_impl_(reinterpret_cast<DBImpl*>(base_db_)),
-      cfh_(cfh),
-      tdb_mutex_(mutex),
-      titan_db_options_(titan_db_options),
+      mutex_(mutex),
+      db_options_(titan_db_options),
       env_(env),
       env_options_(env_options),
       blob_file_manager_(blob_file_manager),
-      version_set_(version_set) {}
+      version_set_(version_set),
+      log_buffer_(log_buffer),
+      shuting_down_(shuting_down) {}
 
 BlobGCJob::~BlobGCJob() {
   if (cmp_) delete cmp_;
@@ -85,17 +90,38 @@ Status BlobGCJob::Run() {
   Status s;
 
   s = SampleCandidateFiles();
+
+  std::string tmp;
+  for (const auto& f : blob_gc_->inputs()) {
+    if (!tmp.empty()) {
+      tmp.append(" ");
+    }
+    tmp.append(std::to_string(f->file_number));
+  }
+
+  std::string tmp2;
+  for (const auto& f : blob_gc_->sampled_inputs()) {
+    if (!tmp2.empty()) {
+      tmp2.append(" ");
+    }
+    tmp2.append(std::to_string(f->file_number));
+  }
+
+  ROCKS_LOG_BUFFER(log_buffer_, "[%s] Titan GC candidates[%s] selected[%s]",
+                   blob_gc_->column_family_handle()->GetName().c_str(),
+                   tmp.c_str(), tmp2.c_str());
+
+  log_buffer_->FlushBufferToLog();
+  LogFlush(db_options_.info_log.get());
+
   if (!s.ok()) return s;
 
-  s = DoRunGC();
-  if (!s.ok()) return s;
-
-  return Status::OK();
+  return DoRunGC();
 }
 
 Status BlobGCJob::SampleCandidateFiles() {
   std::vector<BlobFileMeta*> result;
-  for (const auto& file : blob_gc_->candidate_files()) {
+  for (const auto& file : blob_gc_->inputs()) {
     if (!file->marked_for_sample || DoSample(file)) {
       result.push_back(file);
     }
@@ -103,7 +129,7 @@ Status BlobGCJob::SampleCandidateFiles() {
 
   if (result.empty()) return Status::Aborted("No blob file need to be gc");
 
-  blob_gc_->set_selected_files(std::move(result));
+  blob_gc_->set_sampled_inputs(std::move(result));
 
   return Status::OK();
 }
@@ -118,9 +144,13 @@ bool BlobGCJob::DoSample(const BlobFileMeta* file) {
 
   std::unique_ptr<RandomAccessFileReader> file_reader;
   const int readahead = 256 << 10;
-  s = NewBlobFileReader(file->file_number, readahead, titan_db_options_,
-                        env_options_, env_, &file_reader);
-  assert(s.ok());
+  s = NewBlobFileReader(file->file_number, readahead, db_options_, env_options_,
+                        env_, &file_reader);
+  if (!s.ok()) {
+    fprintf(stderr, "NewBlobFileReader failed, status:%s\n",
+            s.ToString().c_str());
+    abort();
+  }
   BlobFileIterator iter(std::move(file_reader), file->file_number,
                         file->file_size, blob_gc_->titan_cf_options());
   iter.IterateForPrev(sample_begin_offset);
@@ -164,10 +194,25 @@ Status BlobGCJob::DoRunGC() {
   std::unique_ptr<BlobFileHandle> blob_file_handle;
   std::unique_ptr<BlobFileBuilder> blob_file_builder;
 
+  auto* cfh = blob_gc_->column_family_handle();
+
+  //  uint64_t drop_entry_num = 0;
+  //  uint64_t drop_entry_size = 0;
+  //  uint64_t total_entry_num = 0;
+  //  uint64_t total_entry_size = 0;
+
+  uint64_t file_size = 0;
+
   std::string last_key;
   bool last_key_valid = false;
-  for (gc_iter->SeekToFirst(); gc_iter->status().ok() && gc_iter->Valid();
-       gc_iter->Next()) {
+  gc_iter->SeekToFirst();
+  assert(gc_iter->Valid());
+  for (; gc_iter->Valid(); gc_iter->Next()) {
+    if (IsShutingDown()) {
+      s = Status::ShutdownInProgress();
+      break;
+    }
+    BlobIndex blob_index = gc_iter->GetBlobIndex();
     if (!last_key.empty() && !gc_iter->key().compare(last_key)) {
       if (last_key_valid) {
         continue;
@@ -177,7 +222,6 @@ Status BlobGCJob::DoRunGC() {
       last_key_valid = false;
     }
 
-    BlobIndex blob_index = gc_iter->GetBlobIndex();
     if (DiscardEntry(gc_iter->key(), blob_index)) {
       continue;
     }
@@ -185,13 +229,22 @@ Status BlobGCJob::DoRunGC() {
     last_key_valid = true;
 
     // Rewrite entry to new blob file
-    if (!blob_file_handle && !blob_file_builder) {
+    if ((!blob_file_handle && !blob_file_builder) ||
+        file_size >= blob_gc_->titan_cf_options().blob_file_target_size) {
+      if (file_size >= blob_gc_->titan_cf_options().blob_file_target_size) {
+        assert(blob_file_builder);
+        assert(blob_file_handle);
+        assert(blob_file_builder->status().ok());
+        blob_file_builders_.emplace_back(std::make_pair(
+            std::move(blob_file_handle), std::move(blob_file_builder)));
+      }
       s = blob_file_manager_->NewFile(&blob_file_handle);
       if (!s.ok()) {
         break;
       }
       blob_file_builder = unique_ptr<BlobFileBuilder>(new BlobFileBuilder(
           blob_gc_->titan_cf_options(), blob_file_handle->GetFile()));
+      file_size = 0;
     }
     assert(blob_file_handle);
     assert(blob_file_builder);
@@ -200,6 +253,8 @@ Status BlobGCJob::DoRunGC() {
     blob_record.key = gc_iter->key();
     blob_record.value = gc_iter->value();
 
+//    file_size += blob_record.key.size() + blob_record.value.size();
+
     BlobIndex new_blob_index;
     new_blob_index.file_number = blob_file_handle->GetNumber();
     blob_file_builder->Add(blob_record, &new_blob_index.blob_handle);
@@ -207,13 +262,13 @@ Status BlobGCJob::DoRunGC() {
     new_blob_index.EncodeTo(&index_entry);
 
     // Store WriteBatch for rewriting new Key-Index pairs to LSM
-    GarbageCollectionWriteCallback callback(cfh_, blob_record.key.ToString(),
+    GarbageCollectionWriteCallback callback(cfh, blob_record.key.ToString(),
                                             std::move(blob_index));
     callback.value = index_entry;
     rewrite_batches_.emplace_back(
         std::make_pair(WriteBatch(), std::move(callback)));
     auto& wb = rewrite_batches_.back().first;
-    s = WriteBatchInternal::PutBlobIndex(&wb, cfh_->GetID(), blob_record.key,
+    s = WriteBatchInternal::PutBlobIndex(&wb, cfh->GetID(), blob_record.key,
                                          index_entry);
     if (!s.ok()) {
       break;
@@ -238,14 +293,14 @@ Status BlobGCJob::DoRunGC() {
 
 Status BlobGCJob::BuildIterator(unique_ptr<BlobFileMergeIterator>* result) {
   Status s;
-  const auto& inputs = blob_gc_->selected_files();
+  const auto& inputs = blob_gc_->sampled_inputs();
   assert(!inputs.empty());
   std::vector<std::unique_ptr<BlobFileIterator>> list;
   for (std::size_t i = 0; i < inputs.size(); ++i) {
     std::unique_ptr<RandomAccessFileReader> file;
     // TODO(@DorianZheng) set read ahead size
-    s = NewBlobFileReader(inputs[i]->file_number, 0, titan_db_options_,
-                          env_options_, env_, &file);
+    s = NewBlobFileReader(inputs[i]->file_number, 0, db_options_, env_options_,
+                          env_, &file);
     if (!s.ok()) {
       break;
     }
@@ -262,9 +317,9 @@ Status BlobGCJob::BuildIterator(unique_ptr<BlobFileMergeIterator>* result) {
 bool BlobGCJob::DiscardEntry(const Slice& key, const BlobIndex& blob_index) {
   PinnableSlice index_entry;
   bool is_blob_index;
-  auto s = base_db_impl_->GetImpl(ReadOptions(), cfh_, key, &index_entry,
-                                  nullptr /*value_found*/,
-                                  nullptr /*read_callback*/, &is_blob_index);
+  auto s = base_db_impl_->GetImpl(
+      ReadOptions(), blob_gc_->column_family_handle(), key, &index_entry,
+      nullptr /*value_found*/, nullptr /*read_callback*/, &is_blob_index);
   if (!s.ok() && !s.IsNotFound()) {
     fprintf(stderr, "GetImpl err, status:%s\n", s.ToString().c_str());
     abort();
@@ -278,7 +333,7 @@ bool BlobGCJob::DiscardEntry(const Slice& key, const BlobIndex& blob_index) {
   BlobIndex other_blob_index;
   s = other_blob_index.DecodeFrom(&index_entry);
   if (!s.ok()) {
-    return true;
+    abort();
   }
 
   return !(blob_index == other_blob_index);
@@ -290,29 +345,16 @@ bool BlobGCJob::DiscardEntry(const Slice& key, const BlobIndex& blob_index) {
 Status BlobGCJob::Finish() {
   Status s;
   {
-    tdb_mutex_->Unlock();
+    mutex_->Unlock();
     s = InstallOutputBlobFiles();
     if (s.ok()) s = RewriteValidKeyToLSM();
-    if (!s.ok()) blob_gc_->ClearSelectedFiles();
-    tdb_mutex_->Lock();
+    mutex_->Lock();
   }
 
   // TODO(@DorianZheng) cal discardable size for new blob file
 
-  if (s.ok()) {
+  if (s.ok() && !blob_gc_->GetColumnFamilyData()->IsDropped()) {
     s = DeleteInputBlobFiles();
-  }
-
-  // We need to unset being_gc mark for unselected candidate blob files
-  for (auto& file : blob_gc_->candidate_files()) {
-    bool selected = false;
-    for (std::size_t i = 0; i < blob_gc_->selected_files().size(); i++) {
-      if (*blob_gc_->selected_files()[i] == *file) {
-        selected = true;
-        break;
-      }
-    }
-    if (!selected) file->being_gc.store(false, std::memory_order_release);
   }
 
   return s;
@@ -334,9 +376,11 @@ Status BlobGCJob::InstallOutputBlobFiles() {
       auto file = std::make_shared<BlobFileMeta>();
       file->file_number = builder.first->GetNumber();
       file->file_size = builder.first->GetFile()->GetFileSize();
-      files.emplace_back(make_pair(move(file), std::move(builder.first)));
+      blob_gc_->AddOutputFile(file.get());
+      files.emplace_back(std::make_pair(file, std::move(builder.first)));
     }
-    this->blob_file_manager_->BatchFinishFiles(this->cfh_->GetID(), files);
+    this->blob_file_manager_->BatchFinishFiles(
+        blob_gc_->column_family_handle()->GetID(), files);
   } else {
     std::vector<unique_ptr<BlobFileHandle>> handles;
     for (auto& builder : this->blob_file_builders_)
@@ -349,11 +393,19 @@ Status BlobGCJob::InstallOutputBlobFiles() {
 Status BlobGCJob::RewriteValidKeyToLSM() {
   Status s;
   auto* db_impl = reinterpret_cast<DBImpl*>(this->base_db_);
+
   WriteOptions wo;
   wo.low_pri = true;
-  // TODO(@DorianZheng) more elegant solution to deal with missing column families
   wo.ignore_missing_column_families = true;
   for (auto& write_batch : this->rewrite_batches_) {
+    if (blob_gc_->GetColumnFamilyData()->IsDropped()) {
+      s = Status::Aborted("Column family drop");
+      break;
+    }
+    if (IsShutingDown()) {
+      s = Status::ShutdownInProgress();
+      break;
+    }
     s = db_impl->WriteWithCallback(wo, &write_batch.first, &write_batch.second);
     if (s.ok()) {
       // Key is successfully written to LSM
@@ -378,14 +430,20 @@ Status BlobGCJob::RewriteValidKeyToLSM() {
 Status BlobGCJob::DeleteInputBlobFiles() const {
   Status s;
   VersionEdit edit;
-  edit.SetColumnFamilyID(cfh_->GetID());
-  for (const auto& file : blob_gc_->selected_files()) {
+  edit.SetColumnFamilyID(blob_gc_->column_family_handle()->GetID());
+  for (const auto& file : blob_gc_->sampled_inputs()) {
+    ROCKS_LOG_WARN(db_options_.info_log, "Titan add obsolete file [%llu]",
+                   file->file_number);
     edit.DeleteBlobFile(file->file_number);
   }
-  s = version_set_->LogAndApply(&edit, this->tdb_mutex_);
+  s = version_set_->LogAndApply(&edit, this->mutex_);
   // TODO(@DorianZheng) Purge pending outputs
   // base_db_->pending_outputs_.erase(handle->GetNumber());
   return s;
+}
+
+bool BlobGCJob::IsShutingDown() {
+  return (shuting_down_ && shuting_down_->load(std::memory_order_acquire));
 }
 
 }  // namespace titandb
