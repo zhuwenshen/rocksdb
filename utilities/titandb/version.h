@@ -76,7 +76,6 @@ class Version {
   Version(VersionSet* vset) : vset_(vset), prev_(this), next_(this) {}
 
   // Reference count management.
-  // REQUIRES: mutex is held
   void Ref();
   void Unref();
 
@@ -104,7 +103,7 @@ class Version {
   ~Version();
 
   VersionSet* vset_;
-  int refs_{0};
+  std::atomic_int refs_{0};
   Version* prev_;
   Version* next_;
   std::map<uint32_t, std::shared_ptr<BlobStorage>> column_families_;

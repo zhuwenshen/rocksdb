@@ -438,10 +438,8 @@ void TitanDBImpl::ReleaseSnapshot(const Snapshot* snapshot) {
     db_impl_->CleanupSuperVersion(sv.second);
   }
 
-  {
-    MutexLock l(&mutex_);
-    s->current()->Unref();
-  }
+  s->current()->Unref();
+
   delete s;
 }
 

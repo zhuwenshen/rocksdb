@@ -83,11 +83,12 @@ Version::~Version() {
   if (vset_ != nullptr) vset_->AddObsoleteBlobFiles(obsolete_blob_files);
 }
 
-void Version::Ref() { refs_++; }
+void Version::Ref() { refs_.fetch_add(1, std::memory_order_relaxed); }
 
 void Version::Unref() {
-  refs_--;
-  if (refs_ == 0) {
+  uint32_t previous_refs = refs_.fetch_sub(1, std::memory_order_relaxed);
+  assert(previous_refs > 0);
+  if (previous_refs == 1) {
     delete this;
   }
 }
