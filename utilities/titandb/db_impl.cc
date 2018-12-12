@@ -163,8 +163,7 @@ Status TitanDBImpl::Open(const std::vector<TitanCFDescriptor>& descs,
   if (!s.ok()) return s;
 
   // Add EventListener to collect statistics for GC
-  db_options_.listeners.emplace_back(std::make_shared<BaseDbListener>(
-      this, &this->mutex_, this->vset_.get()));
+  db_options_.listeners.emplace_back(std::make_shared<BaseDbListener>(this));
 
   static bool has_init_background_threads = false;
   if (!has_init_background_threads) {
