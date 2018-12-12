@@ -529,6 +529,7 @@ TESTS = \
 	write_prepared_transaction_test \
 	write_unprepared_transaction_test \
 	db_universal_compaction_test \
+	sst_file_reader_test \
 
 PARALLEL_TEST = \
 	backupable_db_test \
