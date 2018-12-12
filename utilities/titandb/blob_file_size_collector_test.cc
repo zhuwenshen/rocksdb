@@ -1,6 +1,6 @@
 #include "utilities/titandb/blob_file_size_collector.h"
 
-#include "base_db_event_listener.h"
+#include "base_db_listener.h"
 
 namespace rocksdb {
 namespace titandb {
@@ -75,7 +75,7 @@ class BlobFileSizeCollectorTest : public testing::Test {
     cji.table_properties["2"] = tp2;
     cji.output_files.emplace_back("2");
     port::Mutex mutex;
-    BlobFileChangeListener listener(nullptr, &mutex, vset_.get());
+    BaseDbListener listener(nullptr);
     listener.OnCompactionCompleted(nullptr, cji);
     ASSERT_EQ(file->discardable_size, 25);
   }

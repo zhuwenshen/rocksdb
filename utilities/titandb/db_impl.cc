@@ -1,6 +1,6 @@
 #include "utilities/titandb/db_impl.h"
 
-#include "utilities/titandb/base_db_event_listener.h"
+#include "utilities/titandb/base_db_listener.h"
 #include "utilities/titandb/blob_file_builder.h"
 #include "utilities/titandb/blob_file_iterator.h"
 #include "utilities/titandb/blob_file_size_collector.h"
@@ -163,7 +163,7 @@ Status TitanDBImpl::Open(const std::vector<TitanCFDescriptor>& descs,
   if (!s.ok()) return s;
 
   // Add EventListener to collect statistics for GC
-  db_options_.listeners.emplace_back(std::make_shared<BlobFileChangeListener>(
+  db_options_.listeners.emplace_back(std::make_shared<BaseDbListener>(
       this, &this->mutex_, this->vset_.get()));
 
   static bool has_init_background_threads = false;
@@ -281,6 +281,26 @@ Status TitanDBImpl::DropColumnFamilies(
       cfds_.erase(cfd);
     }
   }
+  return s;
+}
+
+Status TitanDBImpl::CompactFiles(
+    const CompactionOptions& compact_options, ColumnFamilyHandle* column_family,
+    const std::vector<std::string>& input_file_names, const int output_level,
+    const int output_path_id, std::vector<std::string>* const output_file_names,
+    CompactionJobInfo* compaction_job_info) {
+  std::unique_ptr<CompactionJobInfo> compaction_job_info_ptr;
+  if (compaction_job_info == nullptr) {
+    compaction_job_info_ptr.reset(new CompactionJobInfo());
+    compaction_job_info = compaction_job_info_ptr.get();
+  }
+  auto s = db_impl_->CompactFiles(
+      compact_options, column_family, input_file_names, output_level,
+      output_path_id, output_file_names, compaction_job_info);
+  if (s.ok()) {
+    OnCompactionCompleted(*compaction_job_info);
+  }
+
   return s;
 }
 
@@ -443,101 +463,145 @@ void TitanDBImpl::ReleaseSnapshot(const Snapshot* snapshot) {
   delete s;
 }
 
-Status TitanDBImpl::CompactFiles(
-    const CompactionOptions& compact_options, ColumnFamilyHandle* column_family,
-    const std::vector<std::string>& input_file_names, const int output_level,
-    const int output_path_id, std::vector<std::string>* const output_file_names,
-    CompactionJobInfo* compaction_job_info) {
-  CompactionJobInfo tmp;
-  if (compaction_job_info == nullptr) {
-    compaction_job_info = &tmp;
+void TitanDBImpl::OnFlushCompleted(const FlushJobInfo& flush_job_info) {
+  std::set<uint64_t> outputs;
+
+  const auto& tp = flush_job_info.table_properties;
+  auto ucp_iter =
+      tp.user_collected_properties.find(BlobFileSizeCollector::kPropertiesName);
+  // this sst file doesn't contain any blob index
+  if (ucp_iter == tp.user_collected_properties.end()) {
+    return;
   }
-  auto s = db_impl_->CompactFiles(
-      compact_options, column_family, input_file_names, output_level,
-      output_path_id, output_file_names, compaction_job_info);
-  if (s.ok()) {
-    std::map<uint64_t, int64_t> blob_files_size;
-    std::set<uint64_t> inputs;
-    std::set<uint64_t> outputs;
-    auto calc_bfs = [compaction_job_info, &blob_files_size, &outputs, &inputs](
-                        const std::vector<std::string>& files, int coefficient,
-                        bool output) {
-      for (const auto& file : files) {
-        auto tp_iter = compaction_job_info->table_properties.find(file);
-        if (tp_iter == compaction_job_info->table_properties.end()) {
-          continue;
-        }
-        auto ucp_iter = tp_iter->second->user_collected_properties.find(
-            BlobFileSizeCollector::kPropertiesName);
-        if (ucp_iter == tp_iter->second->user_collected_properties.end()) {
-          continue;
-        }
-        std::map<uint64_t, uint64_t> input_blob_files_size;
-        std::string ts = ucp_iter->second;
-        Slice slice{ts};
-        BlobFileSizeCollector::Decode(&slice, &input_blob_files_size);
-        for (const auto& input_bfs : input_blob_files_size) {
-          if (output) {
-            if (inputs.find(input_bfs.first) == inputs.end()) {
-              outputs.insert(input_bfs.first);
-            }
-          } else {
-            inputs.insert(input_bfs.first);
-          }
-          auto bfs_iter = blob_files_size.find(input_bfs.first);
-          if (bfs_iter == blob_files_size.end()) {
-            blob_files_size[input_bfs.first] = coefficient * input_bfs.second;
-          } else {
-            bfs_iter->second += coefficient * input_bfs.second;
-          }
-        }
-      }
-    };
+  std::map<uint64_t, uint64_t> input_blob_files_size;
+  Slice slice{ucp_iter->second};
+  if (!BlobFileSizeCollector::Decode(&slice, &input_blob_files_size)) {
+    fprintf(stderr, "BlobFileSizeCollector::Decode failed size:%lu\n",
+            ucp_iter->second.size());
+    abort();
+  }
+  for (const auto& input_bfs : input_blob_files_size) {
+    outputs.insert(input_bfs.first);
+  }
 
-    calc_bfs(compaction_job_info->input_files, -1, false);
-    calc_bfs(compaction_job_info->output_files, 1, true);
-
+  {
     MutexLock l(&mutex_);
 
     Version* current = vset_->current();
     current->Ref();
-    auto bs = current->GetBlobStorage(compaction_job_info->cf_id).lock();
+    auto bs = current->GetBlobStorage(flush_job_info.cf_id).lock();
     if (!bs) {
-      fprintf(stderr, "Column family id:%u Not Found\n",
-              compaction_job_info->cf_id);
+      fprintf(stderr, "Column family id:%u Not Found\n", flush_job_info.cf_id);
       current->Unref();
-    } else {
-      for (const auto& o : outputs) {
-        auto file = bs->FindFile(o).lock();
-        if (!file) {
-          fprintf(stderr, "CompactFiles get file failed\n");
+      return;
+    }
+    for (const auto& o : outputs) {
+      auto file = bs->FindFile(o).lock();
+      // maybe gced from last OnFlushCompleted
+      if (!file) {
+        continue;
+      }
+      // one blob file may contain value of multiple sst file
+      //    assert(file->pending);
+      file->pending = false;
+    }
+    current->Unref();
+  }
+}
+
+void TitanDBImpl::OnCompactionCompleted(
+    const CompactionJobInfo& compaction_job_info) {
+  std::map<uint64_t, int64_t> blob_files_size;
+  std::set<uint64_t> outputs;
+  std::set<uint64_t> inputs;
+  auto calc_bfs = [&compaction_job_info, &blob_files_size, &outputs, &inputs](
+      const std::vector<std::string>& files, int coefficient,
+      bool output) {
+    for (const auto& file : files) {
+      auto tp_iter = compaction_job_info.table_properties.find(file);
+      if (tp_iter == compaction_job_info.table_properties.end()) {
+        if (output) {
+          fprintf(stderr, "can't find property for output\n");
           abort();
         }
-        assert(file->pending);
-        file->pending = false;
+        continue;
       }
+      auto ucp_iter = tp_iter->second->user_collected_properties.find(
+          BlobFileSizeCollector::kPropertiesName);
+      // this sst file doesn't contain any blob index
+      if (ucp_iter == tp_iter->second->user_collected_properties.end()) {
+        continue;
+      }
+      std::map<uint64_t, uint64_t> input_blob_files_size;
+      std::string s = ucp_iter->second;
+      Slice slice{s};
+      if (!BlobFileSizeCollector::Decode(&slice, &input_blob_files_size)) {
+        fprintf(stderr, "BlobFileSizeCollector::Decode failed\n");
+        abort();
+      }
+      for (const auto& input_bfs : input_blob_files_size) {
+        if (output) {
+          if (inputs.find(input_bfs.first) == inputs.end()) {
+            outputs.insert(input_bfs.first);
+          }
+        } else {
+          inputs.insert(input_bfs.first);
+        }
+        auto bfs_iter = blob_files_size.find(input_bfs.first);
+        if (bfs_iter == blob_files_size.end()) {
+          blob_files_size[input_bfs.first] = coefficient * input_bfs.second;
+        } else {
+          bfs_iter->second += coefficient * input_bfs.second;
+        }
+      }
+    }
+  };
 
-      for (const auto& bfs : blob_files_size) {
-        // blob file size < 0 means discardable size > 0
-        if (bfs.second > 0) {
-          continue;
-        }
-        auto file = bs->FindFile(bfs.first).lock();
-        if (!file) {
-          // file has been gc out
-          continue;
-        }
-        file->discardable_size += static_cast<uint64_t>(-bfs.second);
-      }
-      bs->ComputeGCScore();
+  calc_bfs(compaction_job_info.input_files, -1, false);
+  calc_bfs(compaction_job_info.output_files, 1, true);
+
+  {
+    MutexLock l(&mutex_);
+    Version* current = vset_->current();
+    current->Ref();
+    auto bs = current->GetBlobStorage(compaction_job_info.cf_id).lock();
+    if (!bs) {
+      fprintf(stderr, "Column family id:%u Not Found\n", compaction_job_info.cf_id);
       current->Unref();
+      return;
+    }
+    for (const auto& o : outputs) {
+      auto file = bs->FindFile(o).lock();
+      if (!file) {
+        fprintf(stderr, "OnCompactionCompleted get file failed\n");
+        abort();
+      }
+      assert(file->pending);
+      file->pending = false;
+    }
 
-      AddToGCQueue(column_family->GetID());
+    for (const auto& bfs : blob_files_size) {
+      // blob file size < 0 means discardable size > 0
+      if (bfs.second >= 0) {
+        continue;
+      }
+      auto file = bs->FindFile(bfs.first).lock();
+      if (!file) {
+        // file has been gc out
+        continue;
+      }
+      file->discardable_size += static_cast<uint64_t>(-bfs.second);
+      assert(file->discardable_size > 0);
+    }
+    bs->ComputeGCScore();
+    current->Unref();
+    if (db_ != nullptr) {
+      AddToGCQueue(compaction_job_info.cf_id);
       MaybeScheduleGC();
+    } else {
+      fprintf(stderr, "This is a test\n");
     }
   }
-
-  return s;
 }
 
 }  // namespace titandb

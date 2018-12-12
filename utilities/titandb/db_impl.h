@@ -60,11 +60,15 @@ class TitanDBImpl : public TitanDB {
 
   void ReleaseSnapshot(const Snapshot* snapshot) override;
 
+  void OnFlushCompleted(const FlushJobInfo& flush_job_info);
+
+  void OnCompactionCompleted(const CompactionJobInfo& compaction_job_info);
+
  private:
   class FileManager;
   friend class FileManager;
   friend class BlobGCJobTest;
-  friend class BlobFileChangeListener;
+  friend class BaseDbListener;
 
   Status GetImpl(const ReadOptions& options, ColumnFamilyHandle* handle,
                  const Slice& key, PinnableSlice* value);
