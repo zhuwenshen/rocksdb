@@ -253,7 +253,7 @@ Status BlobGCJob::DoRunGC() {
     blob_record.key = gc_iter->key();
     blob_record.value = gc_iter->value();
 
-//    file_size += blob_record.key.size() + blob_record.value.size();
+    //    file_size += blob_record.key.size() + blob_record.value.size();
 
     BlobIndex new_blob_index;
     new_blob_index.file_number = blob_file_handle->GetNumber();

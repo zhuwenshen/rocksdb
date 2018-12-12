@@ -7,8 +7,8 @@ BaseDbListener::BaseDbListener(TitanDBImpl* db) : db_impl_(db) {}
 
 BaseDbListener::~BaseDbListener() {}
 
-void BaseDbListener::OnFlushCompleted(
-    DB* /*db*/, const FlushJobInfo& flush_job_info) {
+void BaseDbListener::OnFlushCompleted(DB* /*db*/,
+                                      const FlushJobInfo& flush_job_info) {
   db_impl_->OnFlushCompleted(flush_job_info);
 }
 

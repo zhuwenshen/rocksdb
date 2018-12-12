@@ -514,8 +514,8 @@ void TitanDBImpl::OnCompactionCompleted(
   std::set<uint64_t> outputs;
   std::set<uint64_t> inputs;
   auto calc_bfs = [&compaction_job_info, &blob_files_size, &outputs, &inputs](
-      const std::vector<std::string>& files, int coefficient,
-      bool output) {
+                      const std::vector<std::string>& files, int coefficient,
+                      bool output) {
     for (const auto& file : files) {
       auto tp_iter = compaction_job_info.table_properties.find(file);
       if (tp_iter == compaction_job_info.table_properties.end()) {
@@ -565,7 +565,8 @@ void TitanDBImpl::OnCompactionCompleted(
     current->Ref();
     auto bs = current->GetBlobStorage(compaction_job_info.cf_id).lock();
     if (!bs) {
-      fprintf(stderr, "Column family id:%u Not Found\n", compaction_job_info.cf_id);
+      fprintf(stderr, "Column family id:%u Not Found\n",
+              compaction_job_info.cf_id);
       current->Unref();
       return;
     }
