@@ -167,8 +167,8 @@ class BlobGCJobTest : public testing::Test {
       f.second->marked_for_sample = false;
     }
     std::unique_ptr<BlobFileIterator> iter;
-    ASSERT_OK(NewIterator(b->files_.begin()->second->file_number,
-                          b->files_.begin()->second->file_size, &iter));
+    ASSERT_OK(NewIterator(b->files_.begin()->second->file_number_,
+                          b->files_.begin()->second->file_size_, &iter));
     iter->SeekToFirst();
     for (int i = 0; i < MAX_KEY_NUM; i++, iter->Next()) {
       ASSERT_OK(iter->status());
@@ -184,8 +184,8 @@ class BlobGCJobTest : public testing::Test {
     ASSERT_EQ(b->files_.size(), 1);
     auto new1 = b->files_.begin()->first;
     ASSERT_TRUE(old != new1);
-    ASSERT_OK(NewIterator(b->files_.begin()->second->file_number,
-                          b->files_.begin()->second->file_size, &iter));
+    ASSERT_OK(NewIterator(b->files_.begin()->second->file_number_,
+                          b->files_.begin()->second->file_size_, &iter));
     iter->SeekToFirst();
     auto* db_iter = db_->NewIterator(ReadOptions(), db_->DefaultColumnFamily());
     db_iter->SeekToFirst();

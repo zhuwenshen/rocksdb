@@ -80,7 +80,7 @@ struct BlobHandle {
 // Blob index format:
 //
 // type         : char
-// file_number  : varint64
+// file_number_  : varint64
 // blob_handle  : varint64 offset + varint64 size
 struct BlobIndex {
   enum Type : unsigned char {
@@ -97,9 +97,10 @@ struct BlobIndex {
 
 // Blob file meta format:
 //
-// file_number      : varint64
-// file_size        : varint64
-struct BlobFileMeta {
+// file_number_      : varint64
+// file_size_        : varint64
+class BlobFileMeta {
+ public:
   enum class FileEvent {
     kInit,
     kFlushCompleted,
@@ -111,34 +112,42 @@ struct BlobFileMeta {
     kDbRestart,
   };
 
-  BlobFileMeta(){};
-  BlobFileMeta(uint64_t _file_number, uint64_t _file_size)
-      : file_number(_file_number), file_size(_file_size) {}
-
-  // Persistent field, we should never modify it.
-  uint64_t file_number{0};
-  uint64_t file_size{0};
-
   enum class FileState {
     kInit,  // file never at this state
     kNormal,
     kPendingLSM,  // waiting keys adding to LSM
     kBeingGC,     // being gced
     kPendingGC,   // output of gc, waiting gc finish and keys adding to LSM
-  } state{FileState::kInit};
+  };
 
-  // Not persistent field
-  // These fields maybe are mutate, need to be protected by db.mutex_
-  uint64_t discardable_size{0};
-  bool marked_for_gc{false};
-  bool marked_for_sample{true};
+  BlobFileMeta() = default;
+  BlobFileMeta(uint64_t _file_number, uint64_t _file_size)
+      : file_number_(_file_number), file_size_(_file_size) {}
+
+  friend bool operator==(const BlobFileMeta& lhs, const BlobFileMeta& rhs);
 
   void EncodeTo(std::string* dst) const;
   Status DecodeFrom(Slice* src);
 
-  friend bool operator==(const BlobFileMeta& lhs, const BlobFileMeta& rhs);
+  uint64_t file_number() const { return file_number_; }
+  uint64_t file_size() const { return file_size_; }
+  FileState file_state() const { return state_; }
 
-  void FileStateTransite(const FileEvent& event);
+  void FileStateTransit(const FileEvent& event);
+
+  void AddDiscardableSize(uint64_t discardable_size);
+  double GetDiscardableRatio() const;
+
+ private:
+  // Persistent field
+  uint64_t file_number_{0};
+  uint64_t file_size_{0};
+
+  // Not persistent field
+  FileState state_{FileState::kInit};
+
+  uint64_t discardable_size_{0};
+//  bool marked_for_gc_{false};
 };
 
 // Blob file footer format:

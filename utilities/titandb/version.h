@@ -43,8 +43,8 @@ class BlobStorage {
 
   void MarkAllFilesForGC() {
     for (auto& file : files_) {
-      file.second->FileStateTransite(BlobFileMeta::FileEvent::kDbRestart);
-      file.second->marked_for_gc = true;
+      file.second->FileStateTransit(BlobFileMeta::FileEvent::kDbRestart);
+//      file.second->marked_for_gc_ = true;
     }
   }
 

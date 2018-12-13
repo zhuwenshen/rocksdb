@@ -10,7 +10,7 @@ Status BlobStorage::Get(const ReadOptions& options, const BlobIndex& index,
   if (!sfile)
     return Status::Corruption("Missing blob file: " +
                               std::to_string(index.file_number));
-  return file_cache_->Get(options, sfile->file_number, sfile->file_size,
+  return file_cache_->Get(options, sfile->file_number(), sfile->file_size(),
                           index.blob_handle, record, buffer);
 }
 
@@ -20,14 +20,14 @@ Status BlobStorage::NewPrefetcher(uint64_t file_number,
   if (!sfile)
     return Status::Corruption("Missing blob wfile: " +
                               std::to_string(file_number));
-  return file_cache_->NewPrefetcher(sfile->file_number, sfile->file_size,
+  return file_cache_->NewPrefetcher(sfile->file_number(), sfile->file_size(),
                                     result);
 }
 
 std::weak_ptr<BlobFileMeta> BlobStorage::FindFile(uint64_t file_number) {
   auto it = files_.find(file_number);
   if (it != files_.end()) {
-    assert(file_number == it->second->file_number);
+    assert(file_number == it->second->file_number());
     return it->second;
   }
   return std::weak_ptr<BlobFileMeta>();
@@ -39,15 +39,15 @@ void BlobStorage::ComputeGCScore() {
     gc_score_.push_back({});
     auto& gcs = gc_score_.back();
     gcs.file_number = file.first;
-    if (file.second->marked_for_gc) {
-      gcs.score = 1;
-      file.second->marked_for_gc = false;
-    } else if (file.second->file_size <
+//    if (file.second->marked_for_gc_) {
+//      gcs.score = 1;
+//      file.second->marked_for_gc_ = false;
+//    } else if (file.second->file_size() <
+      if (file.second->file_size() <
                titan_cf_options_.merge_small_file_threshold) {
       gcs.score = 1;
     } else {
-      gcs.score = (double)file.second->discardable_size /
-                  (double)file.second->file_size;
+      gcs.score = file.second->GetDiscardableRatio();
     }
   }
 
@@ -72,8 +72,8 @@ Version::~Version() {
     if (b.second.use_count() > 1) continue;
     for (auto& f : b.second->files_) {
       if (f.second.use_count() > 1) continue;
-      assert(f.second->state == BlobFileMeta::FileState::kNormal);
-      obsolete_blob_files.emplace_back(f.second->file_number);
+      assert(f.second->file_state() == BlobFileMeta::FileState::kNormal);
+      obsolete_blob_files.emplace_back(f.second->file_number());
     }
   }
   if (vset_ != nullptr) vset_->AddObsoleteBlobFiles(obsolete_blob_files);

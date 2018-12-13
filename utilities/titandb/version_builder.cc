@@ -7,7 +7,7 @@ namespace titandb {
 
 void VersionBuilder::Builder::AddFile(
     const std::shared_ptr<BlobFileMeta>& file) {
-  auto number = file->file_number;
+  auto number = file->file_number();
   auto sb = base_.lock();
   if (sb->files_.find(number) != sb->files_.end() ||
       added_files_.find(number) != added_files_.end()) {

@@ -96,7 +96,7 @@ Status BlobGCJob::Run() {
     if (!tmp.empty()) {
       tmp.append(" ");
     }
-    tmp.append(std::to_string(f->file_number));
+    tmp.append(std::to_string(f->file_number()));
   }
 
   std::string tmp2;
@@ -104,7 +104,7 @@ Status BlobGCJob::Run() {
     if (!tmp2.empty()) {
       tmp2.append(" ");
     }
-    tmp2.append(std::to_string(f->file_number));
+    tmp2.append(std::to_string(f->file_number()));
   }
 
   ROCKS_LOG_BUFFER(log_buffer_, "[%s] Titan GC candidates[%s] selected[%s]",
@@ -122,7 +122,7 @@ Status BlobGCJob::Run() {
 Status BlobGCJob::SampleCandidateFiles() {
   std::vector<BlobFileMeta*> result;
   for (const auto& file : blob_gc_->inputs()) {
-    if (!file->marked_for_sample || DoSample(file)) {
+    if (DoSample(file)) {
       result.push_back(file);
     }
   }
@@ -135,24 +135,29 @@ Status BlobGCJob::SampleCandidateFiles() {
 }
 
 bool BlobGCJob::DoSample(const BlobFileMeta* file) {
+  if (file->GetDiscardableRatio() >=
+      blob_gc_->titan_cf_options().blob_file_discardable_ratio) {
+    return true;
+  }
+
   Status s;
   uint64_t sample_size_window = static_cast<uint64_t>(
-      file->file_size * blob_gc_->titan_cf_options().sample_file_size_ratio);
-  Random64 random64(file->file_size);
+      file->file_size() * blob_gc_->titan_cf_options().sample_file_size_ratio);
+  Random64 random64(file->file_size());
   uint64_t sample_begin_offset =
-      random64.Uniform(file->file_size - sample_size_window);
+      random64.Uniform(file->file_size() - sample_size_window);
 
   std::unique_ptr<RandomAccessFileReader> file_reader;
   const int readahead = 256 << 10;
-  s = NewBlobFileReader(file->file_number, readahead, db_options_, env_options_,
+  s = NewBlobFileReader(file->file_number(), readahead, db_options_, env_options_,
                         env_, &file_reader);
   if (!s.ok()) {
     fprintf(stderr, "NewBlobFileReader failed, status:%s\n",
             s.ToString().c_str());
     abort();
   }
-  BlobFileIterator iter(std::move(file_reader), file->file_number,
-                        file->file_size, blob_gc_->titan_cf_options());
+  BlobFileIterator iter(std::move(file_reader), file->file_number(),
+                        file->file_size(), blob_gc_->titan_cf_options());
   iter.IterateForPrev(sample_begin_offset);
   assert(iter.status().ok());
 
@@ -253,7 +258,7 @@ Status BlobGCJob::DoRunGC() {
     blob_record.key = gc_iter->key();
     blob_record.value = gc_iter->value();
 
-    //    file_size += blob_record.key.size() + blob_record.value.size();
+    //    file_size_ += blob_record.key.size() + blob_record.value.size();
 
     BlobIndex new_blob_index;
     new_blob_index.file_number = blob_file_handle->GetNumber();
@@ -299,13 +304,13 @@ Status BlobGCJob::BuildIterator(unique_ptr<BlobFileMergeIterator>* result) {
   for (std::size_t i = 0; i < inputs.size(); ++i) {
     std::unique_ptr<RandomAccessFileReader> file;
     // TODO(@DorianZheng) set read ahead size
-    s = NewBlobFileReader(inputs[i]->file_number, 0, db_options_, env_options_,
+    s = NewBlobFileReader(inputs[i]->file_number(), 0, db_options_, env_options_,
                           env_, &file);
     if (!s.ok()) {
       break;
     }
     list.emplace_back(std::unique_ptr<BlobFileIterator>(new BlobFileIterator(
-        std::move(file), inputs[i]->file_number, inputs[i]->file_size,
+        std::move(file), inputs[i]->file_number(), inputs[i]->file_size(),
         blob_gc_->titan_cf_options())));
   }
 
@@ -373,9 +378,7 @@ Status BlobGCJob::InstallOutputBlobFiles() {
                           std::unique_ptr<BlobFileHandle>>>
         files;
     for (auto& builder : this->blob_file_builders_) {
-      auto file = std::make_shared<BlobFileMeta>();
-      file->file_number = builder.first->GetNumber();
-      file->file_size = builder.first->GetFile()->GetFileSize();
+      auto file = std::make_shared<BlobFileMeta>(builder.first->GetNumber(), builder.first->GetFile()->GetFileSize());
       blob_gc_->AddOutputFile(file.get());
       files.emplace_back(std::make_pair(file, std::move(builder.first)));
     }
@@ -433,8 +436,8 @@ Status BlobGCJob::DeleteInputBlobFiles() const {
   edit.SetColumnFamilyID(blob_gc_->column_family_handle()->GetID());
   for (const auto& file : blob_gc_->sampled_inputs()) {
     ROCKS_LOG_WARN(db_options_.info_log, "Titan add obsolete file [%llu]",
-                   file->file_number);
-    edit.DeleteBlobFile(file->file_number);
+                   file->file_number());
+    edit.DeleteBlobFile(file->file_number());
   }
   s = version_set_->LogAndApply(&edit, this->mutex_);
   // TODO(@DorianZheng) Purge pending outputs

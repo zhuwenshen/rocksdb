@@ -31,23 +31,23 @@ ColumnFamilyData* BlobGC::GetColumnFamilyData() {
 }
 
 void BlobGC::AddOutputFile(BlobFileMeta* blob_file) {
-  blob_file->FileStateTransite(BlobFileMeta::FileEvent::kGCOutput);
+  blob_file->FileStateTransit(BlobFileMeta::FileEvent::kGCOutput);
   outputs_.push_back(blob_file);
 }
 
 void BlobGC::MarkFilesBeingGC() {
   for (auto& f : inputs_) {
-    f->FileStateTransite(BlobFileMeta::FileEvent::kGCBegin);
+    f->FileStateTransit(BlobFileMeta::FileEvent::kGCBegin);
   }
 }
 
 void BlobGC::ReleaseGcFiles() {
   for (auto& f : inputs_) {
-    f->FileStateTransite(BlobFileMeta::FileEvent::kGCCompleted);
+    f->FileStateTransit(BlobFileMeta::FileEvent::kGCCompleted);
   }
 
   for (auto& f : outputs_) {
-    f->FileStateTransite(BlobFileMeta::FileEvent::kGCCompleted);
+    f->FileStateTransit(BlobFileMeta::FileEvent::kGCCompleted);
   }
 }
 

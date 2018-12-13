@@ -44,7 +44,7 @@ class BlobFileSizeCollectorTest : public testing::Test {
                     ->GetBlobStorage(kDefauleColumnFamilyID)
                     .lock()
                     ->files_[1];
-    ASSERT_EQ(file->discardable_size, 5);
+    ASSERT_EQ(file->discardable_size_, 5);
     TablePropertiesCollectorFactory::Context context;
     context.column_family_id = kDefauleColumnFamilyID;
     BlobFileSizeCollectorFactory factory;
@@ -77,7 +77,7 @@ class BlobFileSizeCollectorTest : public testing::Test {
     port::Mutex mutex;
     BaseDbListener listener(nullptr);
     listener.OnCompactionCompleted(nullptr, cji);
-    ASSERT_EQ(file->discardable_size, 25);
+    ASSERT_EQ(file->discardable_size_, 25);
   }
 };
 

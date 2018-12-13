@@ -119,7 +119,7 @@ Status VersionSet::Recover() {
   alive_files.insert(new_manifest_file_number);
   for (const auto& bs : v->column_families_) {
     for (const auto& f : bs.second->files_) {
-      alive_files.insert(f.second->file_number);
+      alive_files.insert(f.second->file_number());
     }
   }
   std::vector<std::string> files;

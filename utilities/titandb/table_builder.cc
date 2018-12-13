@@ -65,15 +65,12 @@ Status TitanTableBuilder::Finish() {
   if (blob_builder_) {
     blob_builder_->Finish();
     if (ok()) {
-      std::shared_ptr<BlobFileMeta> file = std::make_shared<BlobFileMeta>();
-      file->file_number = blob_handle_->GetNumber();
-      file->file_size = blob_handle_->GetFile()->GetFileSize();
-      file->FileStateTransite(
-          BlobFileMeta::FileEvent::kFlushOrCompactionOutput);
+      std::shared_ptr<BlobFileMeta> file = std::make_shared<BlobFileMeta>(blob_handle_->GetNumber(), blob_handle_->GetFile()->GetFileSize());
+      file->FileStateTransit(BlobFileMeta::FileEvent::kFlushOrCompactionOutput);
       status_ =
           blob_manager_->FinishFile(cf_id_, file, std::move(blob_handle_));
       //      ROCKS_LOG_INFO(db_options_.info_log, "[%u] AddFile %lu", cf_id_,
-      //                     file->file_number);
+      //                     file->file_number_);
     } else {
       status_ = blob_manager_->DeleteFile(std::move(blob_handle_));
     }

@@ -463,24 +463,23 @@ void TitanDBImpl::ReleaseSnapshot(const Snapshot* snapshot) {
 }
 
 void TitanDBImpl::OnFlushCompleted(const FlushJobInfo& flush_job_info) {
-  std::set<uint64_t> outputs;
-
-  const auto& tp = flush_job_info.table_properties;
-  auto ucp_iter =
-      tp.user_collected_properties.find(BlobFileSizeCollector::kPropertiesName);
-  // this sst file doesn't contain any blob index
-  if (ucp_iter == tp.user_collected_properties.end()) {
+  const auto& tps = flush_job_info.table_properties;
+  auto ucp_iter = tps.user_collected_properties.find(BlobFileSizeCollector::kPropertiesName);
+  // sst file doesn't contain any blob index
+  if (ucp_iter == tps.user_collected_properties.end()) {
     return;
   }
-  std::map<uint64_t, uint64_t> input_blob_files_size;
-  Slice slice{ucp_iter->second};
-  if (!BlobFileSizeCollector::Decode(&slice, &input_blob_files_size)) {
+  std::map<uint64_t, uint64_t> blob_files_size;
+  Slice src{ucp_iter->second};
+  if (!BlobFileSizeCollector::Decode(&src, &blob_files_size)) {
     fprintf(stderr, "BlobFileSizeCollector::Decode failed size:%lu\n",
             ucp_iter->second.size());
     abort();
   }
-  for (const auto& input_bfs : input_blob_files_size) {
-    outputs.insert(input_bfs.first);
+  assert(!blob_files_size.empty());
+  std::set<uint64_t> outputs;
+  for (const auto f : blob_files_size) {
+    outputs.insert(f.first);
   }
 
   {
@@ -488,19 +487,18 @@ void TitanDBImpl::OnFlushCompleted(const FlushJobInfo& flush_job_info) {
 
     Version* current = vset_->current();
     current->Ref();
-    auto bs = current->GetBlobStorage(flush_job_info.cf_id).lock();
-    if (!bs) {
+    auto blob_storage = current->GetBlobStorage(flush_job_info.cf_id).lock();
+    if (!blob_storage) {
       fprintf(stderr, "Column family id:%u Not Found\n", flush_job_info.cf_id);
-      current->Unref();
-      return;
+      abort();
     }
-    for (const auto& o : outputs) {
-      auto file = bs->FindFile(o).lock();
-      // maybe gced from last OnFlushCompleted
+    for (const auto& file_number : outputs) {
+      auto file = blob_storage->FindFile(file_number).lock();
+      // This file maybe output of a gc job, and it's been gced out.
       if (!file) {
         continue;
       }
-      file->FileStateTransite(BlobFileMeta::FileEvent::kFlushCompleted);
+      file->FileStateTransit(BlobFileMeta::FileEvent::kFlushCompleted);
     }
     current->Unref();
   }
@@ -574,7 +572,7 @@ void TitanDBImpl::OnCompactionCompleted(
         fprintf(stderr, "OnCompactionCompleted get file failed\n");
         abort();
       }
-      file->FileStateTransite(BlobFileMeta::FileEvent::kCompactionCompleted);
+      file->FileStateTransit(BlobFileMeta::FileEvent::kCompactionCompleted);
     }
 
     for (const auto& bfs : blob_files_size) {
@@ -587,17 +585,13 @@ void TitanDBImpl::OnCompactionCompleted(
         // file has been gc out
         continue;
       }
-      file->discardable_size += static_cast<uint64_t>(-bfs.second);
-      assert(file->discardable_size > 0);
+      file->AddDiscardableSize(static_cast<uint64_t>(-bfs.second));
     }
     bs->ComputeGCScore();
     current->Unref();
-    if (db_ != nullptr) {
-      AddToGCQueue(compaction_job_info.cf_id);
-      MaybeScheduleGC();
-    } else {
-      fprintf(stderr, "This is a test\n");
-    }
+
+    AddToGCQueue(compaction_job_info.cf_id);
+    MaybeScheduleGC();
   }
 }
 

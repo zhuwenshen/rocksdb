@@ -21,22 +21,23 @@ std::unique_ptr<BlobGC> BasicBlobGCPicker::PickBlobGC(
     auto blob_file = blob_storage->FindFile(gc_score.file_number).lock();
     assert(blob_file);
 
-//    ROCKS_LOG_INFO(db_options_.info_log,
-//                   "file number:%lu score:%f being_gc:%d pending:%d, "
-//                   "size:%lu discard:%lu mark_for_gc:%d mark_for_sample:%d",
-//                   blob_file->file_number, gc_score.score, blob_file->being_gc,
-//                   blob_file->pending, blob_file->file_size,
-//                   blob_file->discardable_size, blob_file->marked_for_gc,
-//                   blob_file->marked_for_sample);
+    //    ROCKS_LOG_INFO(db_options_.info_log,
+    //                   "file number:%lu score:%f being_gc:%d pending:%d, "
+    //                   "size:%lu discard:%lu mark_for_gc:%d
+    //                   mark_for_sample:%d", blob_file->file_number_,
+    //                   gc_score.score, blob_file->being_gc,
+    //                   blob_file->pending, blob_file->file_size_,
+    //                   blob_file->discardable_size_, blob_file->marked_for_gc_,
+    //                   blob_file->marked_for_sample);
 
-    if (!CheckBlobFile(blob_file.get(), gc_score)) {
+    if (!CheckBlobFile(blob_file.get())) {
       ROCKS_LOG_INFO(db_options_.info_log, "file number:%lu no need gc",
-                     blob_file->file_number);
+                     blob_file->file_number());
       continue;
     }
     blob_files.push_back(blob_file.get());
 
-    batch_size += blob_file->file_size;
+    batch_size += blob_file->file_size();
     if (batch_size >= cf_options_.max_gc_batch_size) break;
   }
 
@@ -47,13 +48,9 @@ std::unique_ptr<BlobGC> BasicBlobGCPicker::PickBlobGC(
       new BlobGC(std::move(blob_files), std::move(cf_options_)));
 }
 
-bool BasicBlobGCPicker::CheckBlobFile(BlobFileMeta* blob_file,
-                                      const GCScore& gc_score) const {
-  assert(blob_file->state != BlobFileMeta::FileState::kInit);
-  if (blob_file->state != BlobFileMeta::FileState::kNormal) return false;
-
-  if (gc_score.score >= cf_options_.blob_file_discardable_ratio)
-    blob_file->marked_for_sample = false;
+bool BasicBlobGCPicker::CheckBlobFile(BlobFileMeta* blob_file) const {
+  assert(blob_file->file_state() != BlobFileMeta::FileState::kInit);
+  if (blob_file->file_state() != BlobFileMeta::FileState::kNormal) return false;
 
   return true;
 }
