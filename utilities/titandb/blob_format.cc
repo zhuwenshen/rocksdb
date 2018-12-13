@@ -165,12 +165,15 @@ void BlobFileMeta::FileStateTransite(const FileEvent& event) {
     case FileEvent::kGCOutput:
       assert(state == FileState::kInit);
       state = FileState::kPendingGC;
+      break;
     case FileEvent::kFlushOrCompactionOutput:
       assert(state == FileState::kInit);
       state = FileState::kPendingLSM;
+      break;
     case FileEvent::kDbRestart:
       assert(state == FileState::kInit);
       state = FileState::kNormal;
+      break;
     default:
       fprintf(stderr,
               "Unknown file event[%d], file number[%lu], file state[%d]",
