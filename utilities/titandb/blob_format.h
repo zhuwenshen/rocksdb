@@ -114,6 +114,12 @@ struct BlobFileMeta {
   bool marked_for_gc{false};
   bool marked_for_sample{true};
 
+  enum class FileState {
+    kPendingLSM,  // waiting keys adding to LSM
+    kBeingGC,     // being gced
+    kPendingGC,   // output of gc, waiting gc finish and keys adding to LSM
+  } state;
+
   // This field can be modified concurrently
   bool being_gc{false};
 
