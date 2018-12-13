@@ -39,7 +39,7 @@ class BlobGC {
 
   ColumnFamilyData* GetColumnFamilyData();
 
-  void MarkFilesBeingGC(bool flag);
+  void MarkFilesBeingGC();
 
   void AddOutputFile(BlobFileMeta*);
 

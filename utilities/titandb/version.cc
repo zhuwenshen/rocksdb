@@ -72,11 +72,7 @@ Version::~Version() {
     if (b.second.use_count() > 1) continue;
     for (auto& f : b.second->files_) {
       if (f.second.use_count() > 1) continue;
-      // TODO(@DorianZheng) We need to judge file state, In case encoutering
-      // some unexpected behaviour
-      assert(!f.second->being_gc);
-      assert(!f.second->pending);
-      assert(!f.second->pending_gc);
+      assert(f.second->state == BlobFileMeta::FileState::kNormal);
       obsolete_blob_files.emplace_back(f.second->file_number);
     }
   }

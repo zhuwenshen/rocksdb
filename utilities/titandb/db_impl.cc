@@ -500,9 +500,7 @@ void TitanDBImpl::OnFlushCompleted(const FlushJobInfo& flush_job_info) {
       if (!file) {
         continue;
       }
-      // one blob file may contain value of multiple sst file
-      //    assert(file->pending);
-      file->pending = false;
+      file->FileStateTransite(BlobFileMeta::FileEvent::kFlushCompleted);
     }
     current->Unref();
   }
@@ -576,8 +574,7 @@ void TitanDBImpl::OnCompactionCompleted(
         fprintf(stderr, "OnCompactionCompleted get file failed\n");
         abort();
       }
-      assert(file->pending);
-      file->pending = false;
+      file->FileStateTransite(BlobFileMeta::FileEvent::kCompactionCompleted);
     }
 
     for (const auto& bfs : blob_files_size) {

@@ -9,7 +9,7 @@ BlobGC::BlobGC(std::vector<BlobFileMeta*>&& blob_files,
                TitanCFOptions&& _titan_cf_options)
     : inputs_(std::move(blob_files)),
       titan_cf_options_(std::move(_titan_cf_options)) {
-  MarkFilesBeingGC(true);
+  MarkFilesBeingGC();
 }
 
 BlobGC::~BlobGC() {
@@ -30,25 +30,24 @@ ColumnFamilyData* BlobGC::GetColumnFamilyData() {
   return cfhi->cfd();
 }
 
-void BlobGC::MarkFilesBeingGC(bool flag) {
-  for (auto& f : inputs_) {
-    assert(flag == !f->being_gc);
-    f->being_gc = flag;
-  }
-}
-
 void BlobGC::AddOutputFile(BlobFileMeta* blob_file) {
-  assert(blob_file->pending);
-  blob_file->pending_gc = true;
+  blob_file->FileStateTransite(BlobFileMeta::FileEvent::kGCOutput);
   outputs_.push_back(blob_file);
 }
 
+void BlobGC::MarkFilesBeingGC() {
+  for (auto& f : inputs_) {
+    f->FileStateTransite(BlobFileMeta::FileEvent::kGCBegin);
+  }
+}
+
 void BlobGC::ReleaseGcFiles() {
-  MarkFilesBeingGC(false);
+  for (auto& f : inputs_) {
+    f->FileStateTransite(BlobFileMeta::FileEvent::kGCCompleted);
+  }
 
   for (auto& f : outputs_) {
-    f->pending = false;
-    f->pending_gc = false;
+    f->FileStateTransite(BlobFileMeta::FileEvent::kGCCompleted);
   }
 }
 
