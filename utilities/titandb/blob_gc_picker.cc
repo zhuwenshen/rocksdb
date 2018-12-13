@@ -27,7 +27,8 @@ std::unique_ptr<BlobGC> BasicBlobGCPicker::PickBlobGC(
     //                   mark_for_sample:%d", blob_file->file_number_,
     //                   gc_score.score, blob_file->being_gc,
     //                   blob_file->pending, blob_file->file_size_,
-    //                   blob_file->discardable_size_, blob_file->marked_for_gc_,
+    //                   blob_file->discardable_size_,
+    //                   blob_file->marked_for_gc_,
     //                   blob_file->marked_for_sample);
 
     if (!CheckBlobFile(blob_file.get())) {

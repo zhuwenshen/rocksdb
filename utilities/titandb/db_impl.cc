@@ -464,7 +464,8 @@ void TitanDBImpl::ReleaseSnapshot(const Snapshot* snapshot) {
 
 void TitanDBImpl::OnFlushCompleted(const FlushJobInfo& flush_job_info) {
   const auto& tps = flush_job_info.table_properties;
-  auto ucp_iter = tps.user_collected_properties.find(BlobFileSizeCollector::kPropertiesName);
+  auto ucp_iter = tps.user_collected_properties.find(
+      BlobFileSizeCollector::kPropertiesName);
   // sst file doesn't contain any blob index
   if (ucp_iter == tps.user_collected_properties.end()) {
     return;

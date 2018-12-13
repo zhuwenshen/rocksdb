@@ -23,7 +23,7 @@ bool BlobFileIterator::Init() {
                         BlobFileFooter::kEncodedLength, &slice, buf);
   if (!status_.ok()) return false;
   BlobFileFooter blob_file_footer;
-  blob_file_footer.DecodeFrom(&slice);
+  status_ = blob_file_footer.DecodeFrom(&slice);
   total_blocks_size_ = file_size_ - BlobFileFooter::kEncodedLength -
                        blob_file_footer.meta_index_handle.size();
   assert(total_blocks_size_ > 0);
@@ -32,7 +32,8 @@ bool BlobFileIterator::Init() {
 }
 
 void BlobFileIterator::SeekToFirst() {
-  if (!init_) Init();
+  if (!init_ && !Init()) return;
+  status_ = Status::OK();
   iterate_offset_ = 0;
   PrefetchAndGet();
 }
@@ -49,7 +50,9 @@ Slice BlobFileIterator::key() const { return cur_blob_record_.key; }
 Slice BlobFileIterator::value() const { return cur_blob_record_.value; }
 
 void BlobFileIterator::IterateForPrev(uint64_t offset) {
-  if (!init_) Init();
+  if (!init_ && !Init()) return;
+
+  status_ = Status::OK();
 
   if (offset >= total_blocks_size_) {
     iterate_offset_ = offset;

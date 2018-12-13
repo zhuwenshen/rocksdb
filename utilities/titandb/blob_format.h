@@ -147,7 +147,7 @@ class BlobFileMeta {
   FileState state_{FileState::kInit};
 
   uint64_t discardable_size_{0};
-//  bool marked_for_gc_{false};
+  //  bool marked_for_gc_{false};
 };
 
 // Blob file footer format:

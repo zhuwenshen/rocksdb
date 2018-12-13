@@ -149,8 +149,8 @@ bool BlobGCJob::DoSample(const BlobFileMeta* file) {
 
   std::unique_ptr<RandomAccessFileReader> file_reader;
   const int readahead = 256 << 10;
-  s = NewBlobFileReader(file->file_number(), readahead, db_options_, env_options_,
-                        env_, &file_reader);
+  s = NewBlobFileReader(file->file_number(), readahead, db_options_,
+                        env_options_, env_, &file_reader);
   if (!s.ok()) {
     fprintf(stderr, "NewBlobFileReader failed, status:%s\n",
             s.ToString().c_str());
@@ -159,7 +159,19 @@ bool BlobGCJob::DoSample(const BlobFileMeta* file) {
   BlobFileIterator iter(std::move(file_reader), file->file_number(),
                         file->file_size(), blob_gc_->titan_cf_options());
   iter.IterateForPrev(sample_begin_offset);
-  assert(iter.status().ok());
+  // TODO(@DorianZheng) sample_begin_offset maybe out of data block size, need
+  // more elegant solution
+  if (iter.status().IsInvalidArgument()) {
+    iter.IterateForPrev(0);
+  }
+  if (!iter.status().ok()) {
+    fprintf(stderr,
+            "IterateForPrev faile, file number[%lu] size[%lu] status[%s]\n",
+            static_cast<size_t>(file->file_number()),
+            static_cast<size_t>(file->file_size()),
+            iter.status().ToString().c_str());
+    abort();
+  }
 
   uint64_t iterated_size{0};
   uint64_t discardable_size{0};
@@ -304,8 +316,8 @@ Status BlobGCJob::BuildIterator(unique_ptr<BlobFileMergeIterator>* result) {
   for (std::size_t i = 0; i < inputs.size(); ++i) {
     std::unique_ptr<RandomAccessFileReader> file;
     // TODO(@DorianZheng) set read ahead size
-    s = NewBlobFileReader(inputs[i]->file_number(), 0, db_options_, env_options_,
-                          env_, &file);
+    s = NewBlobFileReader(inputs[i]->file_number(), 0, db_options_,
+                          env_options_, env_, &file);
     if (!s.ok()) {
       break;
     }
@@ -378,7 +390,8 @@ Status BlobGCJob::InstallOutputBlobFiles() {
                           std::unique_ptr<BlobFileHandle>>>
         files;
     for (auto& builder : this->blob_file_builders_) {
-      auto file = std::make_shared<BlobFileMeta>(builder.first->GetNumber(), builder.first->GetFile()->GetFileSize());
+      auto file = std::make_shared<BlobFileMeta>(
+          builder.first->GetNumber(), builder.first->GetFile()->GetFileSize());
       blob_gc_->AddOutputFile(file.get());
       files.emplace_back(std::make_pair(file, std::move(builder.first)));
     }

@@ -39,12 +39,12 @@ void BlobStorage::ComputeGCScore() {
     gc_score_.push_back({});
     auto& gcs = gc_score_.back();
     gcs.file_number = file.first;
-//    if (file.second->marked_for_gc_) {
-//      gcs.score = 1;
-//      file.second->marked_for_gc_ = false;
-//    } else if (file.second->file_size() <
-      if (file.second->file_size() <
-               titan_cf_options_.merge_small_file_threshold) {
+    //    if (file.second->marked_for_gc_) {
+    //      gcs.score = 1;
+    //      file.second->marked_for_gc_ = false;
+    //    } else if (file.second->file_size() <
+    if (file.second->file_size() <
+        titan_cf_options_.merge_small_file_threshold) {
       gcs.score = 1;
     } else {
       gcs.score = file.second->GetDiscardableRatio();
