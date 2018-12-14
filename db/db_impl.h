@@ -958,7 +958,7 @@ class DBImpl : public DB {
                           std::vector<std::string>* const output_file_names,
                           const int output_level, int output_path_id,
                           JobContext* job_context, LogBuffer* log_buffer,
-                          CompactionJobInfo* compaction_job_info = nullptr);
+                          CompactionJobInfo* compaction_job_info);
 
   // Wait for current IngestExternalFile() calls to finish.
   // REQUIRES: mutex_ held
@@ -1439,6 +1439,13 @@ class DBImpl : public DB {
   bool ShouldntRunManualCompaction(ManualCompactionState* m);
   bool HaveManualCompaction(ColumnFamilyData* cfd);
   bool MCOverlap(ManualCompactionState* m, ManualCompactionState* m1);
+#ifndef ROCKSDB_LITE
+  void BuildCompactionJobInfo(const ColumnFamilyData* cfd, Compaction* c,
+                              const Status& st,
+                              const CompactionJobStats& compaction_job_stats,
+                              const int job_id, const Version* current,
+                              CompactionJobInfo* compaction_job_info) const;
+#endif
 
   bool ShouldPurge(uint64_t file_number) const;
   void MarkAsGrabbedForPurge(uint64_t file_number);
