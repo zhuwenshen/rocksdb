@@ -421,6 +421,7 @@ Status TitanDBImpl::NewIterators(
     const ReadOptions& options, const std::vector<ColumnFamilyHandle*>& handles,
     std::vector<Iterator*>* iterators) {
   ReadOptions ro(options);
+  ro.total_order_seek = true;
   std::shared_ptr<ManagedSnapshot> snapshot;
   if (!ro.snapshot) {
     snapshot.reset(new ManagedSnapshot(this));
