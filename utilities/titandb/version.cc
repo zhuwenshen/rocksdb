@@ -82,7 +82,7 @@ Version::~Version() {
 void Version::Ref() { refs_.fetch_add(1, std::memory_order_relaxed); }
 
 void Version::Unref() {
-  uint32_t previous_refs = refs_.fetch_sub(1, std::memory_order_relaxed);
+  int previous_refs = refs_.fetch_sub(1);
   assert(previous_refs > 0);
   if (previous_refs == 1) {
     delete this;
