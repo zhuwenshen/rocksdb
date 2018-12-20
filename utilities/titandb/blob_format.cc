@@ -185,9 +185,9 @@ void BlobFileMeta::FileStateTransit(const FileEvent& event) {
   }
 }
 
-void BlobFileMeta::AddDiscardableSize(uint64_t discardable_size) {
-  assert(discardable_size < file_size_);
-  discardable_size_ += discardable_size;
+void BlobFileMeta::AddDiscardableSize(uint64_t _discardable_size) {
+  assert(_discardable_size < file_size_);
+  discardable_size_ += _discardable_size;
   assert(discardable_size_ < file_size_);
 }
 

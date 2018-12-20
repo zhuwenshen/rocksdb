@@ -76,21 +76,24 @@ class BlobGCJobTest : public testing::Test {
     auto* cfh = base_db_->DefaultColumnFamily();
 
     // Build BlobGC
+    TitanDBOptions db_options;
     TitanCFOptions cf_options;
+    LogBuffer log_buffer(InfoLogLevel::INFO_LEVEL, db_options.info_log.get());
     cf_options.min_gc_batch_size = 0;
 
     std::unique_ptr<BlobGC> blob_gc;
     {
       std::shared_ptr<BlobGCPicker> blob_gc_picker =
-          std::make_shared<BasicBlobGCPicker>(cf_options);
+          std::make_shared<BasicBlobGCPicker>(db_options, cf_options);
       blob_gc = blob_gc_picker->PickBlobGC(
           version_set_->current()->GetBlobStorage(cfh->GetID()).lock().get());
+      blob_gc->SetInputVersion(cfh, version_set_->current());
     }
     ASSERT_TRUE(blob_gc);
 
     BlobGCJob blob_gc_job(blob_gc.get(), base_db_, mutex_, tdb_->db_options_,
                           tdb_->env_, EnvOptions(), tdb_->blob_manager_.get(),
-                          version_set_, nullptr, nullptr);
+                          version_set_, &log_buffer, nullptr);
 
     s = blob_gc_job.Prepare();
     ASSERT_OK(s);
@@ -133,7 +136,10 @@ class BlobGCJobTest : public testing::Test {
     ASSERT_OK(WriteBatchInternal::PutBlobIndex(&wb, cfh->GetID(), key, res));
     auto rewrite_status = base_db_->Write(WriteOptions(), &wb);
 
-    BlobGCJob blob_gc_job(nullptr, base_db_, mutex_, TitanDBOptions(),
+    std::vector<BlobFileMeta*> tmp;
+    BlobGC blob_gc(std::move(tmp), TitanCFOptions());
+    blob_gc.SetInputVersion(cfh, version_set_->current());
+    BlobGCJob blob_gc_job(&blob_gc, base_db_, mutex_, TitanDBOptions(),
                           Env::Default(), EnvOptions(), nullptr, version_set_,
                           nullptr, nullptr);
     ASSERT_FALSE(blob_gc_job.DiscardEntry(key, blob_index));
@@ -163,12 +169,12 @@ class BlobGCJobTest : public testing::Test {
     auto b = v->GetBlobStorage(base_db_->DefaultColumnFamily()->GetID()).lock();
     ASSERT_EQ(b->files_.size(), 1);
     auto old = b->files_.begin()->first;
-    for (auto& f : b->files_) {
-      f.second->marked_for_sample = false;
-    }
+//    for (auto& f : b->files_) {
+//      f.second->marked_for_sample = false;
+//    }
     std::unique_ptr<BlobFileIterator> iter;
-    ASSERT_OK(NewIterator(b->files_.begin()->second->file_number_,
-                          b->files_.begin()->second->file_size_, &iter));
+    ASSERT_OK(NewIterator(b->files_.begin()->second->file_number(),
+                          b->files_.begin()->second->file_size(), &iter));
     iter->SeekToFirst();
     for (int i = 0; i < MAX_KEY_NUM; i++, iter->Next()) {
       ASSERT_OK(iter->status());
@@ -184,8 +190,8 @@ class BlobGCJobTest : public testing::Test {
     ASSERT_EQ(b->files_.size(), 1);
     auto new1 = b->files_.begin()->first;
     ASSERT_TRUE(old != new1);
-    ASSERT_OK(NewIterator(b->files_.begin()->second->file_number_,
-                          b->files_.begin()->second->file_size_, &iter));
+    ASSERT_OK(NewIterator(b->files_.begin()->second->file_number(),
+                          b->files_.begin()->second->file_size(), &iter));
     iter->SeekToFirst();
     auto* db_iter = db_->NewIterator(ReadOptions(), db_->DefaultColumnFamily());
     db_iter->SeekToFirst();
@@ -206,6 +212,7 @@ class BlobGCJobTest : public testing::Test {
       iter->Next();
       db_iter->Next();
     }
+    delete db_iter;
     ASSERT_FALSE(iter->Valid() || !iter->status().ok());
     DestoyDB();
   }

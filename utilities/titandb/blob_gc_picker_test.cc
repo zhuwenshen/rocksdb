@@ -24,13 +24,18 @@ class BlobGCPickerTest : public testing::Test {
     auto blob_file_cache = std::make_shared<BlobFileCache>(
         titan_db_options, titan_cf_options, NewLRUCache(128));
     blob_storage_.reset(new BlobStorage(titan_cf_options, blob_file_cache));
-    basic_blob_gc_picker_.reset(new BasicBlobGCPicker(titan_cf_options));
+    basic_blob_gc_picker_.reset(new BasicBlobGCPicker(titan_db_options, titan_cf_options));
   }
 
   void AddBlobFile(uint64_t file_number, uint64_t file_size,
                    uint64_t discardable_size, bool being_gc = false) {
-    blob_storage_->files_[file_number] = std::make_shared<BlobFileMeta>(
-        file_number, file_size, discardable_size, being_gc);
+    auto f = std::make_shared<BlobFileMeta>(file_number, file_size);
+    f->AddDiscardableSize(discardable_size);
+    f->FileStateTransit(BlobFileMeta::FileEvent::kDbRestart);
+    if (being_gc) {
+      f->FileStateTransit(BlobFileMeta::FileEvent::kGCBegin);
+    }
+    blob_storage_->files_[file_number] = f;
   }
 
   void UpdateBlobStorage() { blob_storage_->ComputeGCScore(); }

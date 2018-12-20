@@ -72,7 +72,8 @@ Version::~Version() {
     if (b.second.use_count() > 1) continue;
     for (auto& f : b.second->files_) {
       if (f.second.use_count() > 1) continue;
-      assert(f.second->file_state() == BlobFileMeta::FileState::kNormal);
+      // Maybe shutting down, so the file state is undefine
+      // assert(f.second->file_state() == BlobFileMeta::FileState::kNormal);
       obsolete_blob_files.emplace_back(f.second->file_number());
     }
   }

@@ -132,10 +132,11 @@ class BlobFileMeta {
   uint64_t file_number() const { return file_number_; }
   uint64_t file_size() const { return file_size_; }
   FileState file_state() const { return state_; }
+  uint64_t discardable_size() const { return discardable_size_; }
 
   void FileStateTransit(const FileEvent& event);
 
-  void AddDiscardableSize(uint64_t discardable_size);
+  void AddDiscardableSize(uint64_t _discardable_size);
   double GetDiscardableRatio() const;
 
  private:
