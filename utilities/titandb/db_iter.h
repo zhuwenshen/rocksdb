@@ -35,8 +35,8 @@ class TitanSnapshot : public Snapshot {
   }
 
  private:
-  const Version* current_;
-  const Snapshot* snapshot_;
+  Version* const current_;
+  const Snapshot* const snapshot_;
   const std::map<ColumnFamilyData*, SuperVersion*> svs_;
 };
 
