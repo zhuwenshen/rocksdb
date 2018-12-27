@@ -370,10 +370,6 @@ size_t WriteThread::EnterAsBatchGroupLeader(Writer* leader,
   // (newest_writer) is inclusive. Iteration goes from old to new.
   Writer* w = leader;
   while (w != newest_writer) {
-    if (w->callback != nullptr && !w->callback->AllowWriteBatching()) {
-      break;
-    }
-
     w = w->link_newer;
 
     if (w->sync && !leader->sync) {
