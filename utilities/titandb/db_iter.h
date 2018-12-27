@@ -60,46 +60,63 @@ class TitanDBIterator : public Iterator {
 
   void SeekToFirst() override {
     iter_->SeekToFirst();
-    GetBlobValue();
+    while (!GetBlobValue()) {
+      Next();
+    }
   }
 
   void SeekToLast() override {
     iter_->SeekToLast();
-    GetBlobValue();
+    while (!GetBlobValue()) {
+      Prev();
+    }
   }
 
   void Seek(const Slice& target) override {
     iter_->Seek(target);
-    GetBlobValue();
+    while (!GetBlobValue()) {
+      Next();
+    }
   }
 
   void SeekForPrev(const Slice& target) override {
     iter_->SeekForPrev(target);
-    GetBlobValue();
+    while (!GetBlobValue()) {
+      Prev();
+    }
   }
 
   void Next() override {
     iter_->Next();
-    GetBlobValue();
+    while (!GetBlobValue()) {
+      Next();
+    }
   }
 
   void Prev() override {
     iter_->Prev();
-    GetBlobValue();
+    while (!GetBlobValue()) {
+      Prev();
+    }
   }
 
-  Slice key() const override { return iter_->key(); }
+  Slice key() const override {
+    assert(Valid());
+    return iter_->key();
+  }
 
   Slice value() const override {
+    assert(Valid());
     if (!iter_->IsBlob()) return iter_->value();
     return record_.value;
   }
 
  private:
-  void GetBlobValue() {
+  // return value: false means key has been deleted, we need to skipped it.
+  bool GetBlobValue() {
     if (!iter_->Valid() || !iter_->IsBlob()) {
       status_ = iter_->status();
-      return;
+      return true;
     }
     assert(iter_->status().ok());
 
@@ -119,14 +136,16 @@ class TitanDBIterator : public Iterator {
         fprintf(stderr, "key:%s GetBlobValue err:%s\n",
                 iter_->key().ToString(true).c_str(),
                 status_.ToString().c_str());
-        abort();
+        assert(false);
+        return false;
       }
-      if (!status_.ok()) return;
+      if (!status_.ok()) return true;
       it = files_.emplace(index.file_number, std::move(prefetcher)).first;
     }
 
     buffer_.Reset();
     status_ = it->second->Get(options_, index.blob_handle, &record_, &buffer_);
+    return true;
   }
 
   Status status_;
