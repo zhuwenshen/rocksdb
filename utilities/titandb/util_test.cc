@@ -12,11 +12,13 @@ TEST(UtilTest, Compression) {
     CompressionContext compression_ctx(compression);
     std::string buffer;
     auto compressed = Compress(compression_ctx, input, &buffer, &compression);
-    ASSERT_TRUE(compressed.size() <= input.size());
-    UncompressionContext uncompression_ctx(compression);
-    OwnedSlice output;
-    ASSERT_OK(Uncompress(uncompression_ctx, compressed, &output));
-    ASSERT_EQ(output, input);
+    if (compression != kNoCompression) {
+      ASSERT_TRUE(compressed.size() <= input.size());
+      UncompressionContext uncompression_ctx(compression);
+      OwnedSlice output;
+      ASSERT_OK(Uncompress(uncompression_ctx, compressed, &output));
+      ASSERT_EQ(output, input);
+    }
   }
 }
 

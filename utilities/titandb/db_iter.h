@@ -61,42 +61,44 @@ class TitanDBIterator : public Iterator {
   void SeekToFirst() override {
     iter_->SeekToFirst();
     while (!GetBlobValue()) {
-      Next();
+      iter_->Next();
     }
   }
 
   void SeekToLast() override {
     iter_->SeekToLast();
     while (!GetBlobValue()) {
-      Prev();
+      iter_->Prev();
     }
   }
 
   void Seek(const Slice& target) override {
     iter_->Seek(target);
     while (!GetBlobValue()) {
-      Next();
+      iter_->Next();
     }
   }
 
   void SeekForPrev(const Slice& target) override {
     iter_->SeekForPrev(target);
     while (!GetBlobValue()) {
-      Prev();
+      iter_->Prev();
     }
   }
 
   void Next() override {
+    assert(Valid());
     iter_->Next();
     while (!GetBlobValue()) {
-      Next();
+      iter_->Next();
     }
   }
 
   void Prev() override {
+    assert(Valid());
     iter_->Prev();
     while (!GetBlobValue()) {
-      Prev();
+      iter_->Prev();
     }
   }
 
