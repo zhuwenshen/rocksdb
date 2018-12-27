@@ -1,4 +1,5 @@
 #include <inttypes.h>
+#include <options/cf_options.h>
 
 #include "rocksdb/utilities/titandb/db.h"
 #include "util/filename.h"
@@ -12,11 +13,7 @@ void DeleteDir(Env* env, const std::string& dirname) {
   std::vector<std::string> filenames;
   env->GetChildren(dirname, &filenames);
   for (auto& fname : filenames) {
-    uint64_t number;
-    FileType type;
-    if (ParseFileName(fname, &number, &type)) {
-      ASSERT_OK(env->DeleteFile(dirname + "/" + fname));
-    }
+    env->DeleteFile(dirname + "/" + fname);
   }
   env->DeleteDir(dirname);
 }
@@ -158,6 +155,37 @@ class TitanDBTest : public testing::Test {
     }
   }
 
+  void TestTableFactory() {
+    DeleteDir(env_, options_.dirname);
+    DeleteDir(env_, dbname_);
+    Options options;
+    options.create_if_missing = true;
+    options.table_factory.reset(
+        NewBlockBasedTableFactory(BlockBasedTableOptions()));
+    auto* original_table_factory = options.table_factory.get();
+    TitanDB* db;
+    ASSERT_OK(TitanDB::Open(TitanOptions(options), dbname_, &db));
+    auto cf_options = db->GetOptions(db->DefaultColumnFamily());
+    auto db_options = db->GetDBOptions();
+    ImmutableCFOptions immu_cf_options(ImmutableDBOptions(db_options),
+                                       cf_options);
+    ASSERT_EQ(original_table_factory, immu_cf_options.original_table_factory);
+    ASSERT_NE(original_table_factory, immu_cf_options.table_factory);
+    ASSERT_OK(db->Close());
+
+    DeleteDir(env_, options_.dirname);
+    DeleteDir(env_, dbname_);
+    DB* db2;
+    ASSERT_OK(DB::Open(options, dbname_, &db2));
+    auto cf_options2 = db2->GetOptions(db2->DefaultColumnFamily());
+    auto db_options2 = db2->GetDBOptions();
+    ImmutableCFOptions immu_cf_options2(ImmutableDBOptions(db_options2),
+                                        cf_options2);
+    ASSERT_EQ(nullptr, immu_cf_options2.original_table_factory);
+    ASSERT_EQ(original_table_factory, immu_cf_options2.table_factory);
+    ASSERT_OK(db2->Close());
+  }
+
   Env* env_{Env::Default()};
   std::string dbname_;
   TitanOptions options_;
@@ -188,6 +216,8 @@ TEST_F(TitanDBTest, Basic) {
     VerifyDB(data);
   }
 }
+
+TEST_F(TitanDBTest, TableFactory) { TestTableFactory(); }
 
 }  // namespace titandb
 }  // namespace rocksdb

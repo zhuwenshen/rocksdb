@@ -146,9 +146,11 @@ Status TitanDBImpl::Open(const std::vector<TitanCFDescriptor>& descs,
       column_families.emplace(handle->GetID(), descs[i].options);
       db_->DestroyColumnFamilyHandle(handle);
       // Replaces the provided table factory with TitanTableFactory.
-      base_descs[i].options.table_factory.reset(
-          new TitanTableFactory(db_options_, descs[i].options, blob_manager_));
-
+      // While we need to preserve original table_factory for SstFileWriter
+      base_descs[i].options.original_table_factory =
+          base_descs[i].options.table_factory;
+      base_descs[i].options.table_factory = std::make_shared<TitanTableFactory>(
+          db_options_, descs[i].options, blob_manager_);
       // Add TableProperties for collecting statistics GC
       base_descs[i].options.table_properties_collector_factories.emplace_back(
           std::make_shared<BlobFileSizeCollectorFactory>());
