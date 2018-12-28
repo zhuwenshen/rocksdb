@@ -2,7 +2,6 @@
 
 #include "rocksdb/cache.h"
 #include "util/compression.h"
-#include "util/testharness.h"
 
 namespace rocksdb {
 namespace titandb {
