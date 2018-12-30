@@ -34,10 +34,6 @@ Status VersionSet::Open(
   if (!s.IsNotFound()) {
     return s;
   }
-  if (!db_options_.create_if_missing) {
-    return Status::InvalidArgument(dirname_,
-                                   "does't exist (create_if_missing is false)");
-  }
   return OpenManifest(NewFileNumber());
 }
 

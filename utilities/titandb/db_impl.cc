@@ -118,7 +118,7 @@ TitanDBImpl::~TitanDBImpl() { Close(); }
 
 Status TitanDBImpl::Open(const std::vector<TitanCFDescriptor>& descs,
                          std::vector<ColumnFamilyHandle*>* handles) {
-  // Sets up directories for base DB and TitanDB.
+  // Sets up directories for base DB and Titan.
   Status s = env_->CreateDirIfMissing(dbname_);
   if (!s.ok()) return s;
   if (!db_options_.info_log) {
