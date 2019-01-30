@@ -219,6 +219,25 @@ TEST_F(TitanDBTest, Basic) {
 
 TEST_F(TitanDBTest, TableFactory) { TestTableFactory(); }
 
+TEST_F(TitanDBTest, DbIter) {
+  Open();
+  std::map<std::string, std::string> data;
+  const int kNumEntries = 100;
+  for (uint64_t i = 1; i <= kNumEntries; i++) {
+    Put(i, &data);
+  }
+  ASSERT_EQ(kNumEntries, data.size());
+  std::unique_ptr<Iterator> iter(db_->NewIterator(ReadOptions()));
+  iter->SeekToFirst();
+  for (const auto& it : data) {
+    ASSERT_TRUE(iter->Valid());
+    ASSERT_EQ(it.first, iter->key());
+    ASSERT_EQ(it.second, iter->value());
+    iter->Next();
+  }
+  ASSERT_FALSE(iter->Valid());
+}
+
 }  // namespace titandb
 }  // namespace rocksdb
 
