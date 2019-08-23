@@ -15,6 +15,7 @@
 
 #include "db/builder.h"
 #include "db/error_handler.h"
+#include "monitoring/persistent_stats_history.h"
 #include "options/options_helper.h"
 #include "rocksdb/wal_filter.h"
 #include "table/block_based_table_factory.h"
@@ -381,6 +382,12 @@ Status DBImpl::Recover(
   }
 
   Status s = versions_->Recover(column_families, read_only);
+
+  // DB mutex is already held
+  if (s.ok()) {
+    s = InitPersistStatsColumnFamily();
+  }
+
   if (immutable_db_options_.paranoid_checks && s.ok()) {
     s = CheckConsistency();
   }
@@ -496,6 +503,33 @@ Status DBImpl::Recover(
     }
   }
 
+  return s;
+}
+
+Status DBImpl::InitPersistStatsColumnFamily() {
+  mutex_.AssertHeld();
+  assert(!persist_stats_cf_handle_);
+  ColumnFamilyData* persistent_stats_cfd =
+      versions_->GetColumnFamilySet()->GetColumnFamily(
+          kPersistentStatsColumnFamilyName);
+  persistent_stats_cfd_exists_ = persistent_stats_cfd != nullptr;
+
+  Status s;
+  if (persistent_stats_cfd != nullptr) {
+    // We are recovering from a DB which already contains persistent stats CF,
+    // the CF is already created in VersionSet::ApplyOneVersionEdit, but
+    // column family handle was not. Need to explicitly create handle here.
+    persist_stats_cf_handle_ =
+        new ColumnFamilyHandleImpl(persistent_stats_cfd, this, &mutex_);
+  } else {
+    mutex_.Unlock();
+    ColumnFamilyHandle* handle = nullptr;
+    ColumnFamilyOptions cfo;
+    OptimizeForPersistentStats(&cfo);
+    s = CreateColumnFamily(cfo, kPersistentStatsColumnFamilyName, &handle);
+    persist_stats_cf_handle_ = static_cast<ColumnFamilyHandleImpl*>(handle);
+    mutex_.Lock();
+  }
   return s;
 }
 
@@ -1335,4 +1369,5 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
   return s;
 }
+
 }  // namespace rocksdb

@@ -534,6 +534,7 @@ set(SOURCES
         monitoring/histogram_windowing.cc
         monitoring/instrumented_mutex.cc
         monitoring/iostats_context.cc
+        monitoring/persistent_stats_history.cc
         monitoring/perf_context.cc
         monitoring/perf_level.cc
         monitoring/statistics.cc
