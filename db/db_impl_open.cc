@@ -1369,5 +1369,4 @@ Status DBImpl::Open(const DBOptions& db_options, const std::string& dbname,
   }
   return s;
 }
-
 }  // namespace rocksdb
