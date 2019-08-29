@@ -293,6 +293,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "manual_wal_flush=false;"
                              "seq_per_batch=false;"
                              "atomic_flush=false",
+                             "persist_stats_to_disk=false",
                              new_options));
 
   ASSERT_EQ(unset_bytes_base, NumUnsetBytes(new_options_ptr, sizeof(DBOptions),
