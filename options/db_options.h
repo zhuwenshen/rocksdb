@@ -79,6 +79,7 @@ struct ImmutableDBOptions {
   bool two_write_queues;
   bool manual_wal_flush;
   bool atomic_flush;
+  bool persist_stats_to_disk;
 };
 
 struct MutableDBOptions {

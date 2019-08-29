@@ -1236,7 +1236,7 @@ class DBImpl : public DB {
   bool log_empty_;
 
   ColumnFamilyHandleImpl* persist_stats_cf_handle_;
-  bool persistent_stats_cfd_exists_ = true;
+  bool persistent_stats_cfd_exists_ = false;
 
   ColumnFamilyHandleImpl* default_cf_handle_;
   InternalStats* default_cf_internal_stats_;

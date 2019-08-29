@@ -383,11 +383,6 @@ Status DBImpl::Recover(
 
   Status s = versions_->Recover(column_families, read_only);
 
-  // DB mutex is already held
-  if (s.ok()) {
-    s = InitPersistStatsColumnFamily();
-  }
-
   if (immutable_db_options_.paranoid_checks && s.ok()) {
     s = CheckConsistency();
   }
@@ -399,7 +394,10 @@ Status DBImpl::Recover(
       }
     }
   }
-
+  // DB mutex is already held
+  if (s.ok() && immutable_db_options_.persist_stats_to_disk) {
+      s = InitPersistStatsColumnFamily();
+  }
   // Initial max_total_in_memory_state_ before recovery logs. Log recovery
   // may check this value to decide whether to flush.
   max_total_in_memory_state_ = 0;
@@ -1100,12 +1098,23 @@ Status DB::Open(const Options& options, const std::string& dbname, DB** dbptr) {
   std::vector<ColumnFamilyDescriptor> column_families;
   column_families.push_back(
       ColumnFamilyDescriptor(kDefaultColumnFamilyName, cf_options));
+  if(db_options.persist_stats_to_disk){
+      column_families.push_back(
+              ColumnFamilyDescriptor(kPersistentStatsColumnFamilyName, cf_options));
+  }
   std::vector<ColumnFamilyHandle*> handles;
   Status s = DB::Open(db_options, dbname, column_families, &handles, dbptr);
   if (s.ok()) {
-    assert(handles.size() == 1);
+    if (db_options.persist_stats_to_disk){
+        assert(handles.size() == 2);
+    } else {
+        assert(handles.size() == 1);
+    }
     // i can delete the handle since DBImpl is always holding a reference to
     // default column family
+    if (db_options.persist_stats_to_disk && handles[1] != nullptr) {
+        delete handles[1];
+    }
     delete handles[0];
   }
   return s;
