@@ -1160,8 +1160,7 @@ class DBImpl : public DB {
   // Return the minimum empty level that could hold the total data in the
   // input level. Return the input level, if such level could not be found.
   int FindMinimumEmptyLevelFitting(ColumnFamilyData* cfd,
-                                   const MutableCFOptions& mutable_cf_options,
-                                   int level);
+      const MutableCFOptions& mutable_cf_options, int level);
 
   // Move the files in the input level to the target level.
   // If target_level < 0, automatically calculate the minimum level that could
