@@ -292,7 +292,7 @@ TEST_F(OptionsSettableTest, DBOptionsAllFieldsSettable) {
                              "two_write_queues=false;"
                              "manual_wal_flush=false;"
                              "seq_per_batch=false;"
-                             "atomic_flush=false;",
+                             "atomic_flush=false;"
                              "persist_stats_to_disk=false",
                              new_options));
 
