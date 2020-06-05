@@ -376,10 +376,17 @@ class DB {
   // Note: consider setting options.sync = true.
   virtual Status Write(const WriteOptions& options, WriteBatch* updates) = 0;
 
+  // Put each of WriteBatch as a task into thread-pool to make other
+  // write-thread which in queue could help to speed up write.
   virtual Status MultiBatchWrite(const WriteOptions& /*options*/,
                                  std::vector<WriteBatch*>&& /*updates*/) {
     return Status::NotSupported();
   }
+
+  // Poll one task from thread-pool to help MultiBatchWrite(). "true" means that
+  // this call execute one task while false means that there is no task in
+  // thread-pool.
+  virtual bool RunWriteTask() { return false; }
 
   // If the database contains an entry for "key" store the
   // corresponding value in *value and return OK.
