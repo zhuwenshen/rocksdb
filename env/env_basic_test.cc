@@ -4,11 +4,12 @@
 //
 // Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <vector>
-#include <algorithm>
 
+#include "db/db_test_util.h"
 #include "env/mock_env.h"
 #include "rocksdb/env.h"
 #include "rocksdb/env_inspected.h"
@@ -124,14 +125,21 @@ class DummyFileSystemInspector : public FileSystemInspector {
   size_t refill_bytes_;
 };
 
-static std::unique_ptr<Env> inspected_env(
+static std::unique_ptr<Env> fs_inspected_env(
     NewFileSystemInspectedEnv(new NormalizingEnvWrapper(Env::Default()),
                               std::make_shared<DummyFileSystemInspector>(1)));
 INSTANTIATE_TEST_CASE_P(FileSystemInspectedEnv, EnvBasicTestWithParam,
-                        ::testing::Values(inspected_env.get()));
+                        ::testing::Values(fs_inspected_env.get()));
+
+#ifdef OPENSSL
+std::shared_ptr<encryption::KeyManager> key_manager(new TestKeyManager);
+static std::unique_ptr<Env> key_managed_encrypted_env(NewKeyManagedEncryptedEnv(
+    new NormalizingEnvWrapper(Env::Default()), key_manager));
+INSTANTIATE_TEST_CASE_P(KeyManagedEncryptedEnv, EnvBasicTestWithParam,
+                        ::testing::Values(key_managed_encrypted_env.get()));
+#endif  // OPENSSL
 
 namespace {
-
 // Returns a vector of 0 or 1 Env*, depending whether an Env is registered for
 // TEST_ENV_URI.
 //
@@ -321,7 +329,7 @@ TEST_P(EnvBasicTestWithParam, LargeWrite) {
     read += result.size();
   }
   ASSERT_TRUE(write_data == read_data);
-  delete [] scratch;
+  delete[] scratch;
 }
 
 TEST_P(EnvMoreTestWithParam, GetModTime) {
