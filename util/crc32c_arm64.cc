@@ -5,9 +5,11 @@
 
 #include "util/crc32c_arm64.h"
 
-#if defined(__linux__) && defined(HAVE_ARM64_CRC)
+#if defined(HAVE_ARM64_CRC)
 
+#if defined(__linux__)
 #include <asm/hwcap.h>
+#endif
 #include <sys/auxv.h>
 #ifndef HWCAP_CRC32
 #define HWCAP_CRC32 (1 << 7)
