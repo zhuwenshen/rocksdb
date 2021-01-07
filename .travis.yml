@@ -1,11 +1,7 @@
 dist: focal
 language: cpp
-os:
-  - linux
-  - osx
-compiler:
-  - clang
-  - gcc
+os: linux
+compiler: gcc
 osx_image: xcode12
 cache:
   - ccache
@@ -38,25 +34,14 @@ env:
   - JOB_NAME=encrypted_env # 16-18 minutes
 
 matrix:
-  exclude:
-  - os: osx
-    env: TEST_GROUP=1
-  - os: osx
-    env: TEST_GROUP=2
-  - os: osx
-    env: TEST_GROUP=3
-  - os: osx
-    env: TEST_GROUP=4
-  - os: osx
-    env: JOB_NAME=lite_build
-  - os: osx
-    env: JOB_NAME=examples
-  - os: osx
-    env: JOB_NAME=encrypted_env
-  - os : linux
-    compiler: clang
-  - os: osx
-    compiler: gcc
+  include:
+    - os: linux
+      arch: arm64
+      env: TEST_GROUP=platform_dependent
+    - os: osx
+      os_image: xcode12.2
+      compailer: clang
+      env: TEST_GROUP=platform_dependent
 
 
 # https://docs.travis-ci.com/user/caching/#ccache-cache
